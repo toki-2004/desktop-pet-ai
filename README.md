@@ -30,7 +30,17 @@
 
 ## 效果展示
 
-（待补充：桌宠外观图、摸头动图演示、通知气泡截图、余额显示效果图）
+| 默认外观 | 自言自语通知 |
+| --- | --- |
+| ![默认外观](assets/screenshots/default_appearance.png) | ![自言自语](assets/screenshots/self_talk.png) |
+
+| 通知与绿色浮动动画 | 摸头交互 |
+| --- | --- |
+| ![通知测试](assets/screenshots/notification_test.png) | ![摸头](assets/screenshots/pet_interact.png) |
+
+## 下载
+
+最新版本可在 [Releases](https://github.com/toki-2004/desktop-pet/releases) 页面下载。
 
 ## 环境要求
 
@@ -104,8 +114,11 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --add-data "assets;assets" main.py
+pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" --add-data "self_talk.txt;." main.py
 ```
+
+打包说明：`config.json` 不打包（含 API Key），首次运行会在 exe 同目录自动生成；
+自带素材与默认自言自语文本库从打包目录解出，可自定义。
 
 ## 安全提示
 

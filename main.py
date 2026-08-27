@@ -2,6 +2,7 @@
 """桌宠核心入口：透明置顶桌宠 + 思考云线通知 + DeepSeek 余额 + 高峰/空闲提醒。"""
 import os
 import random
+import shutil
 import sys
 
 from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
@@ -15,10 +16,18 @@ from scheduler import ScheduleMonitor
 from settings_dialog import SettingsDialog
 import autostart
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+FROZEN = bool(getattr(sys, "frozen", False))
+if FROZEN:
+    PROJECT_DIR = os.path.dirname(sys.executable)
+    BUNDLE_DIR = getattr(sys, "_MEIPASS", PROJECT_DIR)
+else:
+    PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+    BUNDLE_DIR = PROJECT_DIR
+
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.json")
-DEFAULT_IMAGE = os.path.join(PROJECT_DIR, "assets", "deepseek拟人.png")
-DEFAULT_INTERACT = os.path.join(PROJECT_DIR, "assets", "ds摸头.gif")
+DEFAULT_IMAGE = os.path.join(BUNDLE_DIR, "assets", "deepseek拟人.png")
+DEFAULT_INTERACT = os.path.join(BUNDLE_DIR, "assets", "ds摸头.gif")
+DEFAULT_TALK_FILE = os.path.join(BUNDLE_DIR, "self_talk.txt")
 
 
 class SelfTalkMonitor(QObject):
@@ -89,6 +98,12 @@ class DesktopPet:
     def _ensure_talk_file(self):
         if os.path.exists(self.talk_file):
             return
+        if os.path.exists(DEFAULT_TALK_FILE):
+            try:
+                shutil.copyfile(DEFAULT_TALK_FILE, self.talk_file)
+                return
+            except Exception:
+                pass
         texts = self.config.get("self_talk_texts") or []
         try:
             with open(self.talk_file, "w", encoding="utf-8") as f:

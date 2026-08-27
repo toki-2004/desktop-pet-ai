@@ -9,6 +9,8 @@ VALUE_NAME = "DesktopPet"
 
 
 def _command():
+    if getattr(sys, "frozen", False):
+        return '"%s"' % sys.executable
     exe = sys.executable
     if exe.lower().endswith("python.exe"):
         exe = exe[: -len("python.exe")] + "pythonw.exe"
