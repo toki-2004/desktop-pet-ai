@@ -1,6 +1,6 @@
 config.json
-self_talk_quotes.json
-pet_head_quotes.json
+/self_talk_quotes.json
+/pet_head_quotes.json
 __pycache__/
 build/
 dist/
