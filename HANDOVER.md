@@ -81,3 +81,15 @@
 ## 安全提醒
 
 `config.json` 含明文 API Key，已加入 `.gitignore`，任何情况下不要提交。
+
+## 变更记录
+
+### 2026-08-28 · 修复置顶开关相关窗口隐藏/置顶丢失
+
+- 根因：`setWindowFlag()` 会先隐藏可见的顶层窗口并重建原生窗口，
+  紧接其后的 `isVisible()` 恒为 False，导致 `show()` 永不执行：
+  余额文本（BalanceLabel）切过一次置顶后永久消失；气泡/浮动字同理。
+- 修复：新增 `set_topmost_flag()`（pet_window.py），先记录可见性再切换
+  标志、必要时重新 `show()`；Windows 上再用原生 `SetWindowPos` 强制
+  `HWND_TOPMOST/HWND_NOTOPMOST`，避免桌宠本体置顶偶发丢失。
+- 涉及：pet_window.py（桌宠/余额/浮动字）、balloon.py（气泡）。

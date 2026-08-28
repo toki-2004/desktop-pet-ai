@@ -2,6 +2,8 @@
 """桌宠主窗口：透明置顶、可拖动、滚轮缩放、余额常态显示、浮动文字动画、
 左键交互（按下即播放，循环，松开恢复，如摸头）。"""
 import os
+import sys
+import ctypes
 
 from PyQt5.QtCore import Qt, QPoint, QSize, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
 from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen
@@ -11,6 +13,34 @@ MAX_PET_SIZE = 240
 MIN_PET_SIZE = 30
 MAX_SCALE = 4.0
 MIN_SCALE = 0.2
+
+
+def set_topmost_flag(widget, on):
+    """切换置顶标志（桌宠/余额/浮动字/气泡通用）。
+
+    setWindowFlag 会先隐藏可见的顶层窗口并重建原生窗口，紧接其后的
+    isVisible() 恒为 False，导致窗口不再显示；这里先记录可见性，
+    必要时重新 show()，并在 Windows 上原生强制 WS_EX_TOPMOST，
+    避免原生窗口重建竞态导致置顶丢失。
+    """
+    was_visible = widget.isVisible()
+    widget.setWindowFlag(Qt.WindowStaysOnTopHint, bool(on))
+    if was_visible:
+        widget.show()
+    if sys.platform == "win32":
+        try:
+            hwnd = int(widget.winId())
+            SWP_NOSIZE = 0x0001
+            SWP_NOMOVE = 0x0002
+            SWP_NOACTIVATE = 0x0010
+            ctypes.windll.user32.SetWindowPos(
+                hwnd,
+                -1 if on else -2,  # HWND_TOPMOST / HWND_NOTOPMOST
+                0, 0, 0, 0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
+            )
+        except Exception:
+            pass
 
 
 class BalanceLabel(QLabel):
@@ -31,9 +61,7 @@ class BalanceLabel(QLabel):
 
     def set_top_flag(self, on):
         """同步"显示在最上层"开关：与桌宠/通知/浮动字保持一致。"""
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, bool(on))
-        if self.isVisible():
-            self.show()
+        set_topmost_flag(self, on)
 
     def _current_fs(self):
         return int(self.config.get("balance_font_size", 14) or 14)
@@ -163,13 +191,10 @@ class PetWindow(QWidget):
     def _apply_top_flag(self):
         """同步置顶开关：桌宠、余额文本、已有浮动字一起切换。"""
         on = bool(self.config.get("always_on_top", True))
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, on)
+        set_topmost_flag(self, on)
         self.balance_label.set_top_flag(on)
         for lab in list(self._floats):
-            lab.setWindowFlag(Qt.WindowStaysOnTopHint, on)
-            if lab.isVisible():
-                lab.show()
-        self.show()
+            set_topmost_flag(lab, on)
 
     def _load_pet(self, path):
         if self._movie:

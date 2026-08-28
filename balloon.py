@@ -6,6 +6,8 @@ from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer
 from PyQt5.QtGui import QPainter, QColor, QPainterPath, QPen
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout
 
+from pet_window import set_topmost_flag
+
 
 class ThinkingBalloon(QWidget):
     """顶部置顶的云线气泡窗口。persistent=True 时显示"知道了"并停留到确认。"""
@@ -45,9 +47,7 @@ class ThinkingBalloon(QWidget):
     def set_top_flag(self, on):
         """同步"显示在最上层"开关：与桌宠/余额/浮动字保持一致。"""
         self._always_on_top = bool(on)
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, self._always_on_top)
-        if self.isVisible():
-            self.show()
+        set_topmost_flag(self, self._always_on_top)
 
     def set_content(self, text, fill, outline):
         self._text = text
