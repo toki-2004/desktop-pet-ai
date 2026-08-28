@@ -26,6 +26,12 @@ class BalanceLabel(QLabel):
         self.pet_window = parent
         self._drag_pos = None
 
+    def set_top_flag(self, on):
+        """同步"显示在最上层"开关：与桌宠/通知/浮动字保持一致。"""
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, bool(on))
+        if self.isVisible():
+            self.show()
+
     def _current_fs(self):
         return int(self.config.get("balance_font_size", 14) or 14)
 
@@ -94,6 +100,7 @@ class PetWindow(QWidget):
     testNotifyRequested = pyqtSignal()
     quitRequested = pyqtSignal()
     autoStartRequested = pyqtSignal(bool)
+    petHeadRequested = pyqtSignal()
     moved = pyqtSignal(QPoint)
 
     def __init__(self, config, default_image=""):
@@ -113,6 +120,12 @@ class PetWindow(QWidget):
         self._scale = float(self.config.get("pet_scale", 1.0) or 1.0)
         self._interact_movie = None
         self._interact_shown = False
+        self._pressed = False
+        self._press_timer = QTimer(self)
+        self._press_timer.setSingleShot(True)
+        self._press_timer.timeout.connect(self._on_long_press)
+        self._head_timer = QTimer(self)
+        self._head_timer.timeout.connect(self._on_head_tick)
 
         self.pet_label = QLabel(self)
         self.balance_label = BalanceLabel(config, self)
@@ -127,6 +140,18 @@ class PetWindow(QWidget):
         self._apply_balance_style()
         self.balance_label.setVisible(bool(self.config.get("show_balance", True)))
         self._place_balance()
+        self._apply_top_flag()
+
+    def _apply_top_flag(self):
+        """同步置顶开关：桌宠、余额文本、已有浮动字一起切换。"""
+        on = bool(self.config.get("always_on_top", True))
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, on)
+        self.balance_label.set_top_flag(on)
+        for lab in list(self._floats):
+            lab.setWindowFlag(Qt.WindowStaysOnTopHint, on)
+            if lab.isVisible():
+                lab.show()
+        self.show()
 
     def _load_pet(self, path):
         if self._movie:
@@ -230,13 +255,36 @@ class PetWindow(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            self._pressed = True
             self._interact_shown = self._show_interact()
+            if self.config.get("pet_head_enabled", True):
+                press_ms = max(300, int(self.config.get("pet_head_long_press_ms", 600) or 600))
+                self._press_timer.start(press_ms)
+            else:
+                self._press_timer.stop()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self._pressed = False
+            self._press_timer.stop()
+            self._head_timer.stop()
             if self._interact_shown:
                 self._show_normal()
         self._drag_pos = None
+
+    def _on_long_press(self):
+        """长按判定通过：触发一条摸头语录，按住期间按间隔循环。"""
+        if not self._pressed:
+            return
+        self.petHeadRequested.emit()
+        interval = max(1, int(self.config.get("pet_head_interval", 10) or 10))
+        self._head_timer.start(interval * 1000)
+
+    def _on_head_tick(self):
+        if self._pressed:
+            self.petHeadRequested.emit()
+        else:
+            self._head_timer.stop()
 
     def _show_interact(self):
         path = self.config.get("pet_interact_image") or ""
@@ -273,7 +321,10 @@ class PetWindow(QWidget):
     # ---------- 浮动文字动画 ----------
     def show_float_text(self, text, color):
         lab = QLabel(text)
-        lab.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        flags = Qt.FramelessWindowHint | Qt.Tool
+        if self.config.get("always_on_top", True):
+            flags |= Qt.WindowStaysOnTopHint
+        lab.setWindowFlags(flags)
         lab.setAttribute(Qt.WA_TranslucentBackground)
         fs = int(self.config.get("balance_font_size", 14) or 14)
         lab.setStyleSheet(
@@ -311,6 +362,10 @@ class PetWindow(QWidget):
     # ---------- 拖动 ----------
     def mouseMoveEvent(self, event):
         if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
+            # 拖动桌宠时取消长按语录，避免挪动误触发
+            self._pressed = False
+            self._press_timer.stop()
+            self._head_timer.stop()
             self.move(event.globalPos() - self._drag_pos)
 
     def moveEvent(self, event):

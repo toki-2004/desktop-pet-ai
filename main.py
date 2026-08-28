@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """桌宠核心入口：透明置顶桌宠 + 思考云线通知 + DeepSeek 余额 + 高峰/空闲提醒。"""
+import json
 import os
 import random
 import shutil
@@ -27,7 +28,43 @@ else:
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.json")
 DEFAULT_IMAGE = os.path.join(BUNDLE_DIR, "assets", "deepseek拟人.png")
 DEFAULT_INTERACT = os.path.join(BUNDLE_DIR, "assets", "ds摸头.gif")
-DEFAULT_TALK_FILE = os.path.join(BUNDLE_DIR, "self_talk.txt")
+DEFAULT_SELF_TALK_QUOTES = os.path.join(BUNDLE_DIR, "assets", "self_talk_quotes.json")
+DEFAULT_PET_HEAD_QUOTES = os.path.join(BUNDLE_DIR, "assets", "pet_head_quotes.json")
+
+
+def load_txt_lines(path):
+    """读取旧版每行一条的文本库。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    except Exception:
+        return []
+
+
+def write_json_quotes(path, texts):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump([t for t in texts if str(t).strip()], f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def load_quote_file(path, fallback):
+    """读取 JSON 语录库（数组）；兼容旧 txt 格式；均失败时回退默认文本。"""
+    if path and os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                texts = [str(t).strip() for t in data if str(t).strip()]
+                if texts:
+                    return texts
+        except Exception:
+            pass
+        lines = load_txt_lines(path)
+        if lines:
+            return lines
+    return [str(t).strip() for t in (fallback or []) if str(t).strip()]
 
 
 class SelfTalkMonitor(QObject):
@@ -45,12 +82,7 @@ class SelfTalkMonitor(QObject):
         self._schedule()
 
     def _load_texts(self):
-        self._texts = []
-        try:
-            with open(self.text_file, encoding="utf-8") as f:
-                self._texts = [line.strip() for line in f if line.strip()]
-        except Exception:
-            pass
+        self._texts = load_quote_file(self.text_file, self.config.get("self_talk_texts") or [])
         return self._texts
 
     def _schedule(self):
@@ -75,10 +107,9 @@ class DesktopPet:
             self.config.set(
                 "pet_image", DEFAULT_IMAGE if os.path.exists(DEFAULT_IMAGE) else ""
             )
-        self.talk_file = self.config.get("self_talk_file") or os.path.join(PROJECT_DIR, "self_talk.txt")
-        if not self.config.get("self_talk_file"):
-            self.config.set("self_talk_file", self.talk_file)
-        self._ensure_talk_file()
+        self.talk_file = self.config.get("self_talk_file") or os.path.join(PROJECT_DIR, "self_talk_quotes.json")
+        self.head_file = self.config.get("pet_head_file") or os.path.join(PROJECT_DIR, "pet_head_quotes.json")
+        self._ensure_quote_files()
         if autostart.is_enabled():
             self.config.set("auto_start", True)
         self.window = PetWindow(self.config, default_image=DEFAULT_IMAGE)
@@ -95,21 +126,38 @@ class DesktopPet:
         self.window.show()
         self.monitor.start()
 
-    def _ensure_talk_file(self):
-        if os.path.exists(self.talk_file):
-            return
-        if os.path.exists(DEFAULT_TALK_FILE):
+    def _ensure_quote_files(self):
+        """确保两个语录库存在且为 JSON：旧 txt 自动迁移，缺失时复制预置默认库。"""
+        # 旧版 .txt 迁移为 .json（原文件保留）
+        if self.talk_file.lower().endswith(".txt") and os.path.exists(self.talk_file):
+            lines = load_txt_lines(self.talk_file)
+            if lines:
+                json_path = os.path.join(PROJECT_DIR, "self_talk_quotes.json")
+                write_json_quotes(json_path, lines)
+                self.talk_file = json_path
+                self.config.set("self_talk_file", json_path)
+        self.talk_file = self._ensure_quote_file(
+            self.talk_file, DEFAULT_SELF_TALK_QUOTES, self.config.get("self_talk_texts") or []
+        )
+        self.head_file = self._ensure_quote_file(
+            self.head_file, DEFAULT_PET_HEAD_QUOTES, self.config.get("pet_head_texts") or []
+        )
+        if self.talk_file != self.config.get("self_talk_file"):
+            self.config.set("self_talk_file", self.talk_file)
+        if self.head_file != self.config.get("pet_head_file"):
+            self.config.set("pet_head_file", self.head_file)
+
+    def _ensure_quote_file(self, path, default_src, fallback_texts):
+        if path and os.path.exists(path):
+            return path
+        if os.path.exists(default_src):
             try:
-                shutil.copyfile(DEFAULT_TALK_FILE, self.talk_file)
-                return
+                shutil.copyfile(default_src, path)
+                return path
             except Exception:
                 pass
-        texts = self.config.get("self_talk_texts") or []
-        try:
-            with open(self.talk_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(texts))
-        except Exception:
-            pass
+        write_json_quotes(path, fallback_texts)
+        return path
 
     def _wire(self):
         w = self.window
@@ -120,6 +168,7 @@ class DesktopPet:
         w.testNotifyRequested.connect(self._test_notify)
         w.quitRequested.connect(QApplication.instance().quit)
         w.autoStartRequested.connect(self._on_auto_start)
+        w.petHeadRequested.connect(self._show_pet_head)
         w.moved.connect(self._on_moved)
 
         m = self.monitor
@@ -159,6 +208,12 @@ class DesktopPet:
         except Exception:
             self.window.show_float_text("自启设置失败", "#EF4444")
 
+    def _show_pet_head(self):
+        """长按桌宠：随机取一条摸头语录显示。"""
+        texts = load_quote_file(self.head_file, self.config.get("pet_head_texts") or [])
+        if texts:
+            self._show_balloon(random.choice(texts))
+
     def _show_balloon(self, text, persistent=False):
         if self._balloon is not None:
             self._balloon.hide()
@@ -168,6 +223,7 @@ class DesktopPet:
             fill=self.config.get("balloon_fill", "#FFFFFF"),
             outline=self.config.get("balloon_outline", "#1E3A8A"),
             persistent=persistent,
+            always_on_top=bool(self.config.get("always_on_top", True)),
         )
         self._balloon.confirmed.connect(self._balloon.hide)
         self._balloon.show_at(self.window.geometry())
@@ -191,9 +247,11 @@ class DesktopPet:
     def _on_settings_applied(self):
         self._settings_dlg = None
         self.window.apply_config()
-        self.monitor.set_interval(int(self.config.get("poll_interval_sec", 5)))
+        self.monitor.set_interval(int(self.config.get("poll_interval_sec", 3)))
         self.monitor.poll()
         self.talk._schedule()
+        if self._balloon is not None:
+            self._balloon.set_top_flag(bool(self.config.get("always_on_top", True)))
 
     def _on_fetch_error(self, message):
         import time

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """设置对话框：通知颜色/文本、外观、账号绑定（含浏览器打开 DeepSeek 平台）。"""
+import json
 import os
 import webbrowser
 
@@ -102,6 +103,12 @@ class SettingsDialog(QDialog):
         form.addRow("高峰开始文本", self.peak_edit)
         form.addRow("空闲开始文本", self.idle_edit)
 
+        self.poll_spin = QSpinBox()
+        self.poll_spin.setRange(1, 3600)
+        self.poll_spin.setValue(int(self.config.get("poll_interval_sec", 3)))
+        self.poll_spin.setSuffix(" 秒")
+        form.addRow("余额刷新间隔", self.poll_spin)
+
         self.fill_edit, self.fill_btn = self._color_row(form, "云线填充色", self.config.get("balloon_fill", "#FFFFFF"))
         self.outline_edit, self.outline_btn = self._color_row(form, "云线描边色", self.config.get("balloon_outline", "#1E3A8A"))
 
@@ -127,14 +134,44 @@ class SettingsDialog(QDialog):
         return w
 
     def _load_talk_texts(self):
-        talk_file = self.config.get("self_talk_file") or ""
-        if talk_file and os.path.exists(talk_file):
+        return self._load_quotes("self_talk_file", "self_talk_texts")
+
+    def _load_head_texts(self):
+        return self._load_quotes("pet_head_file", "pet_head_texts")
+
+    def _load_quotes(self, file_key, default_key):
+        """读取 JSON 语录库；兼容旧 txt 每行一条格式。"""
+        path = self.config.get(file_key) or ""
+        if path and os.path.exists(path):
             try:
-                with open(talk_file, encoding="utf-8") as f:
-                    return [line.strip() for line in f if line.strip()]
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    texts = [str(t).strip() for t in data if str(t).strip()]
+                    if texts:
+                        return texts
             except Exception:
                 pass
-        return self.config.get("self_talk_texts") or []
+            try:
+                with open(path, encoding="utf-8") as f:
+                    lines = [line.strip() for line in f if line.strip()]
+                if lines:
+                    return lines
+            except Exception:
+                pass
+        return self.config.get(default_key) or []
+
+    def _write_quotes(self, file_key, default_key, texts):
+        path = self.config.get(file_key) or ""
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(texts, f, ensure_ascii=False, indent=2)
+                return
+            except Exception:
+                pass
+        # 无文件路径时退回配置内置数组
+        self.config.set(default_key, texts)
 
     def _color_row(self, form, label, hex_color):
         row = QWidget()
@@ -182,6 +219,10 @@ class SettingsDialog(QDialog):
     def _build_appearance_tab(self):
         w = QWidget()
         lay = QVBoxLayout(w)
+        self.top_check = QCheckBox("窗口置顶（桌宠 / 通知 / 余额 / 浮动字）")
+        self.top_check.setChecked(bool(self.config.get("always_on_top", True)))
+        lay.addWidget(self.top_check)
+
         self.image_path_label = QLabel()
         self.image_path_label.setWordWrap(True)
         lay.addWidget(self.image_path_label)
@@ -209,6 +250,40 @@ class SettingsDialog(QDialog):
         self._current_image = self.config.get("pet_image", "")
         self._update_preview()
         self._update_interact_preview()
+
+        # 摸头语录库（独立于自言自语，长按桌宠触发）
+        head_box = QWidget()
+        hv = QVBoxLayout(head_box)
+        self.head_check = QCheckBox("启用摸头语录（长按桌宠触发）")
+        self.head_check.setChecked(bool(self.config.get("pet_head_enabled", True)))
+        hv.addWidget(self.head_check)
+        self.head_edit = QPlainTextEdit()
+        self.head_edit.setPlainText("\n".join(self._load_head_texts()))
+        self.head_edit.setPlaceholderText("每行一条，长按桌宠时随机显示")
+        self.head_edit.setFixedHeight(90)
+        hv.addWidget(self.head_edit)
+        head_row = QHBoxLayout()
+        self.head_interval = QSpinBox()
+        self.head_interval.setRange(1, 300)
+        self.head_interval.setValue(int(self.config.get("pet_head_interval", 10)))
+        self.head_interval.setSuffix(" 秒")
+        self.head_press_ms = QSpinBox()
+        self.head_press_ms.setRange(300, 2000)
+        self.head_press_ms.setSingleStep(50)
+        self.head_press_ms.setValue(int(self.config.get("pet_head_long_press_ms", 600)))
+        self.head_press_ms.setSuffix(" 毫秒")
+        head_row.addWidget(QLabel("按住期间换语录间隔"))
+        head_row.addWidget(self.head_interval)
+        head_row.addWidget(QLabel("长按判定"))
+        head_row.addWidget(self.head_press_ms)
+        head_row.addStretch(1)
+        hv.addLayout(head_row)
+        head_file = self.config.get("pet_head_file") or ""
+        head_lab = QLabel("摸头语录库文件：%s" % head_file)
+        head_lab.setWordWrap(True)
+        head_lab.setStyleSheet("color:#666; font-size:11px;")
+        hv.addWidget(head_lab)
+        lay.addWidget(head_box)
         return w
 
     def _make_preview(self):
@@ -333,14 +408,15 @@ class SettingsDialog(QDialog):
             self.config.set("balloon_outline", outline.name().upper())
         self.config.set("pet_image", self._current_image)
         self.config.set("pet_interact_image", self._current_interact)
+        self.config.set("always_on_top", self.top_check.isChecked())
+        self.config.set("poll_interval_sec", self.poll_spin.value())
         self.config.set("self_talk_enabled", self.talk_check.isChecked())
         self.config.set("self_talk_interval", self.talk_interval.value())
         texts = [t.strip() for t in self.talk_edit.toPlainText().splitlines() if t.strip()]
-        talk_file = self.config.get("self_talk_file") or ""
-        if talk_file:
-            try:
-                with open(talk_file, "w", encoding="utf-8") as f:
-                    f.write("\n".join(texts))
-            except Exception:
-                pass
+        self._write_quotes("self_talk_file", "self_talk_texts", texts)
+        head_texts = [t.strip() for t in self.head_edit.toPlainText().splitlines() if t.strip()]
+        self.config.set("pet_head_enabled", self.head_check.isChecked())
+        self.config.set("pet_head_interval", self.head_interval.value())
+        self.config.set("pet_head_long_press_ms", self.head_press_ms.value())
+        self._write_quotes("pet_head_file", "pet_head_texts", head_texts)
         self.accept()

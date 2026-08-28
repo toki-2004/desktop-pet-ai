@@ -13,10 +13,14 @@ class ThinkingBalloon(QWidget):
     confirmed = pyqtSignal()
 
     def __init__(self, text="", fill="#FFFFFF", outline="#1E3A8A",
-                 persistent=False):
-        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+                 persistent=False, always_on_top=True):
+        flags = Qt.FramelessWindowHint | Qt.Tool
+        if always_on_top:
+            flags |= Qt.WindowStaysOnTopHint
+        super().__init__(None, flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
+        self._always_on_top = bool(always_on_top)
         self._text = text
         self._fill = QColor(fill)
         self._outline = QColor(outline)
@@ -37,6 +41,13 @@ class ThinkingBalloon(QWidget):
             lay.setContentsMargins(14, 12, 14, 8)
             lay.addStretch(1)
             lay.addWidget(btn, 0, Qt.AlignHCenter)
+
+    def set_top_flag(self, on):
+        """同步"显示在最上层"开关：与桌宠/余额/浮动字保持一致。"""
+        self._always_on_top = bool(on)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, self._always_on_top)
+        if self.isVisible():
+            self.show()
 
     def set_content(self, text, fill, outline):
         self._text = text
