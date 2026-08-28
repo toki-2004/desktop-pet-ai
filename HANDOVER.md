@@ -19,6 +19,9 @@
 - 2026-08-28 第七轮：按用户要求改为**拖动也算长按摸头**——按住期间是否移动不再
   影响语录触发，只要按住超过判定时间即触发，按住期间按间隔循环；桌宠与余额文本
   区域行为一致。
+- 2026-08-28 第八轮：**高峰/空闲特殊通知强化**——只能点"知道了"按钮关闭
+  （点气泡其他区域不再关闭）；特殊通知显示期间抑制自言自语、摸头语录等所有
+  普通通知，确认后才恢复。
 - 默认图片已复制到 `assets/deepseek拟人.png`（源文件
   `D:\pythonitems\deepseek拟人.png`）；摸头动图复制到
   `assets/ds摸头.gif`（源文件 `D:\pythonitems\ds摸头.gif`）。
@@ -68,6 +71,10 @@
 - 长按与拖动互不干扰（pet_window.py）：按住即长按（超过 `pet_head_long_press_ms`
   触发语录，按住期间按 `pet_head_interval` 循环），拖动不取消；余额文本
   （BalanceLabel）长按同样转发 `petHeadRequested`。
+- 通知优先级（main.py）：`_show_balloon` 中 `_special_active` 表示高峰/空闲特殊
+  通知正在显示（persistent=True），此时普通通知（自言自语/摸头/测试通知）直接
+  丢弃；特殊通知之间可互相替换；确认走 `_on_balloon_confirmed`（ThinkingBalloon
+  persistent 模式只允许按钮触发，点气泡不再关闭）。
 - 下一步可选：PyInstaller 打包 exe 并发布 Release（按项目惯例 vX.Y.Z）；
   通知增加图标/音效；自言自语加入时间感知（问候语/夜间文案）。
 

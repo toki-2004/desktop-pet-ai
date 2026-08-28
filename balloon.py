@@ -81,9 +81,8 @@ class ThinkingBalloon(QWidget):
         self.confirmed.emit()
 
     def mousePressEvent(self, event):
-        if self._persistent:
-            self._confirm()
-        else:
+        # 特殊通知（persistent）只能通过按钮确认关闭；普通通知点任意处关闭
+        if not self._persistent:
             self.hide()
 
     def paintEvent(self, event):

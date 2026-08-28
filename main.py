@@ -117,6 +117,7 @@ class DesktopPet:
         self.schedule = ScheduleMonitor()
         self.talk = SelfTalkMonitor(self.config, self.talk_file)
         self._balloon = None
+        self._special_active = False
         self._last_error_ts = 0.0
         self._settings_dlg = None
         self._wire()
@@ -215,6 +216,9 @@ class DesktopPet:
             self._show_balloon(random.choice(texts))
 
     def _show_balloon(self, text, persistent=False):
+        # 特殊通知（高峰/空闲，需点按钮确认）显示期间，抑制自言自语/摸头等普通通知
+        if self._special_active and not persistent:
+            return
         if self._balloon is not None:
             self._balloon.hide()
             self._balloon.deleteLater()
@@ -225,8 +229,16 @@ class DesktopPet:
             persistent=persistent,
             always_on_top=bool(self.config.get("always_on_top", True)),
         )
-        self._balloon.confirmed.connect(self._balloon.hide)
+        self._balloon.confirmed.connect(self._on_balloon_confirmed)
+        if persistent:
+            self._special_active = True
         self._balloon.show_at(self.window.geometry())
+
+    def _on_balloon_confirmed(self):
+        """特殊通知确认：只有点"知道了"按钮才会走到这里。"""
+        self._special_active = False
+        if self._balloon is not None:
+            self._balloon.hide()
 
     def _test_notify(self):
         self._show_balloon(self.config.get("balloon_text", "主人，有新消息啦！"))
