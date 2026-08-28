@@ -149,7 +149,11 @@ class PetWindow(QWidget):
 
     # ---------- 外观 ----------
     def apply_config(self):
-        self._normal_path = self.config.get("pet_image") or self.default_image
+        path = self.config.get("pet_image")
+        # 配置路径失效（如打包后临时解压目录变化）时回退内置默认图
+        if not path or not os.path.exists(path):
+            path = self.default_image
+        self._normal_path = path
         self._load_pet(self._normal_path)
         self._apply_balance_style()
         self.balance_label.setVisible(bool(self.config.get("show_balance", True)))
