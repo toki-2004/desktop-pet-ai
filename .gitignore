@@ -6,6 +6,9 @@ build/
 dist/
 *.spec
 
+# 交接文档仅本地保留，不入库
+HANDOVER.md
+
 # 个人皮肤素材（仅本机使用，不推送）
 小猫.png
 小猫摸头.gif
