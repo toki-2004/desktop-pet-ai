@@ -234,15 +234,23 @@ class DesktopPet:
 
     def _open_settings(self, tab):
         if self._settings_dlg is not None:
-            self._settings_dlg.raise_()
-            self._settings_dlg.activateWindow()
-            self._settings_dlg.tabs.setCurrentIndex(tab)
-            return
+            try:
+                self._settings_dlg.raise_()
+                self._settings_dlg.activateWindow()
+                self._settings_dlg.tabs.setCurrentIndex(tab)
+                return
+            except RuntimeError:
+                # 对话框已被关闭并删除（点取消/右上角 X），重新创建
+                self._settings_dlg = None
         dlg = SettingsDialog(self.config, initial_tab=tab)
         dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.destroyed.connect(self._on_settings_destroyed)
         dlg.accepted.connect(self._on_settings_applied)
         self._settings_dlg = dlg
         dlg.show()
+
+    def _on_settings_destroyed(self):
+        self._settings_dlg = None
 
     def _on_settings_applied(self):
         self._settings_dlg = None
