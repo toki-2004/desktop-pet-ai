@@ -247,6 +247,10 @@ class DesktopPet:
     def _open_settings(self, tab):
         if self._settings_dlg is not None:
             try:
+                # 对话框可能处于隐藏但对象仍在的状态（如副屏 DPI 重建窗口时被连带隐藏），
+                # 必须先 show() 再置前，否则 raise_() 对隐藏窗口无效、设置将永远打不开
+                if not self._settings_dlg.isVisible():
+                    self._settings_dlg.show()
                 self._settings_dlg.raise_()
                 self._settings_dlg.activateWindow()
                 self._settings_dlg.tabs.setCurrentIndex(tab)
