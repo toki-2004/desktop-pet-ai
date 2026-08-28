@@ -11,7 +11,6 @@ MAX_PET_SIZE = 240
 MIN_PET_SIZE = 30
 MAX_SCALE = 4.0
 MIN_SCALE = 0.2
-DRAG_CANCEL_PX = 8  # 按下后移动超过该像素才算拖动（用于区分手抖与拖动）
 
 
 class BalanceLabel(QLabel):
@@ -26,7 +25,6 @@ class BalanceLabel(QLabel):
         self.config = config
         self.pet_window = parent
         self._drag_pos = None
-        self._press_global = None
         self._head_press_timer = QTimer(self)
         self._head_press_timer.setSingleShot(True)
         self._head_press_timer.timeout.connect(self._on_head_long_press)
@@ -73,7 +71,6 @@ class BalanceLabel(QLabel):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            self._press_global = event.globalPos()
             if self.pet_window is not None and self.pet_window.config.get("pet_head_enabled", True):
                 press_ms = max(300, int(self.pet_window.config.get("pet_head_long_press_ms", 600) or 600))
                 self._head_press_timer.start(press_ms)
@@ -83,10 +80,6 @@ class BalanceLabel(QLabel):
 
     def mouseMoveEvent(self, event):
         if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
-            if self._press_global is not None and (
-                event.globalPos() - self._press_global
-            ).manhattanLength() > DRAG_CANCEL_PX:
-                self._head_press_timer.stop()
             screen = QApplication.screenAt(event.globalPos())
             avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
             x = event.globalPos().x() - self._drag_pos.x()
@@ -99,7 +92,6 @@ class BalanceLabel(QLabel):
     def mouseReleaseEvent(self, event):
         if self._drag_pos is not None:
             self._head_press_timer.stop()
-            self._press_global = None
             if self.pet_window is not None:
                 self.config.set("balance_offset", [
                     self.x() - self.pet_window.x(),
@@ -143,7 +135,6 @@ class PetWindow(QWidget):
         self._interact_movie = None
         self._interact_shown = False
         self._pressed = False
-        self._press_global = None
         self._press_timer = QTimer(self)
         self._press_timer.setSingleShot(True)
         self._press_timer.timeout.connect(self._on_long_press)
@@ -278,7 +269,6 @@ class PetWindow(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            self._press_global = event.globalPos()
             self._pressed = True
             self._interact_shown = self._show_interact()
             if self.config.get("pet_head_enabled", True):
@@ -290,7 +280,6 @@ class PetWindow(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._pressed = False
-            self._press_global = None
             self._press_timer.stop()
             self._head_timer.stop()
             if self._interact_shown:
@@ -387,13 +376,7 @@ class PetWindow(QWidget):
     # ---------- 拖动 ----------
     def mouseMoveEvent(self, event):
         if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
-            # 只有移动超过阈值（真正拖动）才取消长按，避免手抖/窗口重排误取消
-            if self._press_global is not None and (
-                event.globalPos() - self._press_global
-            ).manhattanLength() > DRAG_CANCEL_PX:
-                self._pressed = False
-                self._press_timer.stop()
-                self._head_timer.stop()
+            # 拖动桌宠也算长按：不取消语录，按住超过判定时间即触发
             self.move(event.globalPos() - self._drag_pos)
 
     def moveEvent(self, event):
