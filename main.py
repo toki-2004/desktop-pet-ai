@@ -86,12 +86,17 @@ class SelfTalkMonitor(QObject):
         return self._texts
 
     def _schedule(self):
-        if not self.config.get("self_talk_enabled", True):
-            return
-        if not self._load_texts():
-            return
+        # 关闭开关、文本库为空、间隔 0 都要显式停表：
+        # 旧实现提前 return 不停 timer，设置里关掉后桌宠仍按旧间隔说话
+        enabled = bool(self.config.get("self_talk_enabled", True))
         val = self.config.get("self_talk_interval", 300)
-        sec = max(1, int(val if val is not None else 300))
+        try:
+            sec = int(val if val is not None else 300)
+        except (TypeError, ValueError):
+            sec = 300
+        if not enabled or sec <= 0 or not self._load_texts():
+            self._timer.stop()
+            return
         self._timer.start(sec * 1000)
 
     def _fire(self):
@@ -191,7 +196,8 @@ class DesktopPet:
             self.window.move(pos[0], pos[1])
 
     def _on_moved(self, point):
-        self.config.set("pet_pos", [point.x(), point.y()])
+        # 位置落盘改由 PetWindow.mouseReleaseEvent 在拖动结束时执行一次，
+        # 这里只做内存里的气泡锚点跟随（每像素写盘的旧做法已移除）
         if self._balloon is not None and self._balloon.isVisible():
             self._balloon.set_anchor(self.window.geometry())
 

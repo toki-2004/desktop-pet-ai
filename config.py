@@ -2,6 +2,7 @@
 """配置读写：默认配置 + 本地 JSON（config.json，含 API Key，勿提交）。"""
 import json
 import os
+import shutil
 
 DEFAULT_CONFIG = {
     "balloon_fill": "#FFFFFF",
@@ -64,8 +65,14 @@ class Config:
                 if key in loaded:
                     self.data[key] = loaded[key]
             self._migrate_accounts()
-        except Exception:
-            pass
+        except Exception as e:
+            # 配置损坏（含 API Key 与全部个性化设置）绝不能静默丢失：
+            # 坏档改名保留供排查，控制台留痕，下次保存生成全新配置
+            print("[config] 配置文件读取失败，已使用默认配置: %s" % e)
+            try:
+                os.replace(self.path, self.path + ".broken")
+            except Exception:
+                pass
 
     def _migrate_accounts(self):
         """旧格式 {名称: Key} 迁移为 {名称: {platform, api_key}}。"""
@@ -82,8 +89,15 @@ class Config:
 
     def save(self):
         try:
-            with open(self.path, "w", encoding="utf-8") as f:
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
+            if os.path.exists(self.path):
+                try:
+                    shutil.copy2(self.path, self.path + ".bak")  # 上一份好档留作备份
+                except Exception:
+                    pass
+            os.replace(tmp, self.path)  # 原子替换，杜绝"截断后写一半"的坏档
         except Exception:
             pass
 

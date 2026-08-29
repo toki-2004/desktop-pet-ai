@@ -168,6 +168,11 @@ class PetWindow(QWidget):
         self._press_timer.timeout.connect(self._on_long_press)
         self._head_timer = QTimer(self)
         self._head_timer.timeout.connect(self._on_head_tick)
+        self._scale_save_timer = QTimer(self)
+        self._scale_save_timer.setSingleShot(True)
+        self._scale_save_timer.setInterval(800)
+        self._scale_save_timer.timeout.connect(
+            lambda: self.config.set("pet_scale", round(self._scale, 3)))
 
         self.pet_label = QLabel(self)
         self.balance_label = BalanceLabel(config, self)
@@ -270,7 +275,8 @@ class PetWindow(QWidget):
             return
         factor = 1.12 if delta > 0 else 1 / 1.12
         self._scale = max(MIN_SCALE, min(MAX_SCALE, self._scale * factor))
-        self.config.set("pet_scale", round(self._scale, 3))
+        # 停止滚动 800ms 后才落盘：每格滚轮写一次盘的旧做法会高频重写 config.json
+        self._scale_save_timer.start()
         self._apply_scale()
 
     # ---------- 余额常态显示 ----------
@@ -313,6 +319,9 @@ class PetWindow(QWidget):
             self._head_timer.stop()
             if self._interact_shown:
                 self._show_normal()
+            if self._drag_pos is not None:
+                # 位置在拖动结束时落盘一次：moveEvent 每像素写盘的旧做法会高频重写 config.json
+                self.config.set("pet_pos", [self.x(), self.y()])
         self._drag_pos = None
 
     def _on_long_press(self):
@@ -406,7 +415,13 @@ class PetWindow(QWidget):
     def mouseMoveEvent(self, event):
         if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
             # 拖动桌宠也算长按：不取消语录，按住超过判定时间即触发
-            self.move(event.globalPos() - self._drag_pos)
+            screen = QApplication.screenAt(event.globalPos())
+            avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
+            pos = event.globalPos() - self._drag_pos
+            # 钳制在屏幕可用区内，避免拖出屏幕后无法右键退出
+            x = max(avail.left(), min(pos.x(), avail.right() - self.width()))
+            y = max(avail.top(), min(pos.y(), avail.bottom() - self.height()))
+            self.move(x, y)
 
     def moveEvent(self, event):
         if self._drag_pos is not None:
