@@ -25,7 +25,9 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
 6. **Left-click interaction**: **clicking** the pet plays the "head pat" animation once from the start and restores the
    normal look automatically; rapid clicks terminate the previous playback and restart from frame 0; dragging does not
    trigger the animation. The period status label stays fixed in place during playback. The default asset is `assets/ds摸头.gif`,
-   replaceable in settings.
+   replaceable in settings. Want to make your own head-pat animation? Use
+   [png-q-bounce](https://github.com/toki-2004/png-q-bounce) to turn a single PNG into a Q-bounce GIF
+   (plays once, keeps the transparent background) and set it as the interaction skin.
 7. **Head-pat quotes**: each click pops up one random head-pat quote (in sync with the animation, one quote per click);
    head-pat quotes and self-talk are two independent quote libraries that do not interfere with each other, and both can be
    edited and expanded to any number of entries.
@@ -165,6 +167,11 @@ pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" -
 
 Packaging notes: `config.json` is not packaged (it contains API Keys) and is generated automatically in the exe's directory on first run; the tray icon `icon.png` must be bundled too (see command);
 the bundled assets and the two default quote libraries (`assets/*_quotes.json`) are extracted from the package directory and can be customized.
+
+## Related Projects
+
+* [png-q-bounce](https://github.com/toki-2004/png-q-bounce): turns one PNG into a single-play Q-bounce GIF
+  (keeps the transparent background) — use it to make the pet's interaction animation skin.
 
 ## Security Note
 
