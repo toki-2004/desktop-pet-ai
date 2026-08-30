@@ -22,13 +22,18 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
 4. **Appearance customization**: PNG/GIF files can be imported to change the pet's look; the default image is
    `assets/deepseek拟人.png`.
 5. **Scroll-wheel zoom**: with the mouse hovering over the pet, scrolling the wheel zooms the image or GIF in/out (the scale is remembered automatically).
-6. **Left-click interaction**: **pressing and holding** the pet immediately loops the "head pat" animation and restores it on release;
-   a single click no longer triggers anything; if a still image is configured, it is shown while held; the default asset is `assets/ds摸头.gif`,
+6. **Left-click interaction**: **clicking** the pet plays the "head pat" animation once from the start and restores the
+   normal look automatically; rapid clicks terminate the previous playback and restart from frame 0; dragging does not
+   trigger the animation. The period status label stays fixed in place during playback. The default asset is `assets/ds摸头.gif`,
    replaceable in settings.
-7. **Head-pat quotes**: **long-pressing** the pet (0.6 seconds by default) pops up a random head-pat quote; while held, quotes
-   keep rotating at the configured interval; head-pat quotes and self-talk are two independent quote libraries that do not interfere with each other.
-8. **Self-talk**: while idle, cloud notifications pop up at random intervals from a customizable text library,
-   as if the pet were talking to itself; the text library, toggle, and interval are all adjustable in settings.
+7. **Head-pat quotes**: each click pops up one random head-pat quote (in sync with the animation, one quote per click);
+   head-pat quotes and self-talk are two independent quote libraries that do not interfere with each other, and both can be
+   edited and expanded to any number of entries.
+8. **Self-talk (context-aware triggers)**: quotes are auto-classified by content and delivered through different triggers -
+   time-of-day greetings (morning/lunch/tea/evening/weekend, once per day each), health reminders (45 minutes of
+   keyboard/mouse idle), attention seeking (90 minutes without interaction), balance changes (probabilistic), and random
+   chatter (configurable interval); a [time] [health] [attention] [balance] [random] prefix on a quote forces its trigger.
+   The text library, toggle, and interval are all adjustable in settings.
 9. **JSON-based quote libraries**: head-pat and self-talk quotes are now stored in separate JSON files
    (`pet_head_quotes.json` / `self_talk_quotes.json`); preset default libraries are generated automatically on first run;
    the legacy `self_talk.txt` is migrated to JSON automatically (the original file is kept).
@@ -40,6 +45,13 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
 13. **Basic interaction**: drag the pet with the left button; the position is remembered automatically; right-click opens the menu.
 14. **Launch at startup**: the right-click menu toggles "launch at startup" (writes to the current user's Run key, no administrator needed;
     starts silently via pythonw at boot).
+15. **Period status display**: the label directly below the pet always shows whether it is peak (red) or idle (green)
+    time - solid border, semi-transparent fill, rounded corners; it stays fixed in place during interaction playback.
+16. **System tray icon**: left-click the tray icon to show/hide the pet; the right-click menu opens notification
+    settings, appearance settings, show/hide, or quits - you can always quit even when the pet is hard to find.
+17. **Robustness**: balance polling has a 20-second watchdog (network stalls like hung DNS no longer freeze it
+    silently; it retries automatically); config.json is written atomically with an automatic backup, and a corrupted
+    file no longer silently drops settings.
 
 ## Screenshots
 
@@ -72,8 +84,10 @@ python main.py
 
 - **Left-drag**: move the pet (saved automatically).
 - **Scroll zoom**: scroll the wheel while the cursor is over the pet to zoom in (up) / out (down).
-- **Left-button hold**: plays the interaction animation (head pat) immediately, looping until release; a single click does not trigger it.
-- **Left-button long-press** (0.6 seconds by default): additionally pops up head-pat quotes; while held, quotes rotate at the configured interval.
+- **Left click**: plays the interaction animation (head pat) once from the start, then restores automatically; rapid
+  clicks restart from frame 0; dragging does not trigger it. Also rotates one random head-pat quote.
+- **System tray**: left-click the tray icon to show/hide the pet; the right-click menu opens notification settings,
+  appearance settings, show/hide, or quits.
 - **Right-click menu**:
   - Persistent balance display: toggle the always-visible balance text;
   - Launch at startup: toggle starting with the system;
@@ -85,11 +99,12 @@ python main.py
 
 ## Configuration
 
-The configuration file is `config.json` in the project root (generated automatically, already added to `.gitignore`):
+The configuration file is `config.json` in the project root (generated automatically, already added to `.gitignore`; written atomically with an automatic `config.json.bak` backup):
 
 - `balloon_fill` / `balloon_outline`: cloud fill and outline colors (hex);
 - `balloon_text`: default notification text;
 - `peak_balloon_text` / `idle_balloon_text`: texts shown when the peak/idle period begins;
+- `peak_status_text` / `idle_status_text`: period status label texts (default "高峰时段" / "空闲时段");
 - `pet_image`: pet image path (PNG/GIF);
 - `pet_scale`: zoom scale (adjusted with the wheel, saved automatically);
 - `pet_interact_image`: left-click interaction image/GIF path (PNG/GIF);
@@ -100,8 +115,7 @@ The configuration file is `config.json` in the project root (generated automatic
 - `always_on_top`: always-on-top toggle (synced across notifications / pet / balance text / floating text);
 - `self_talk_enabled` / `self_talk_texts` / `self_talk_interval` / `self_talk_file`:
   self-talk toggle, default texts, interval (seconds), and quote library JSON file path;
-- `pet_head_enabled` / `pet_head_texts` / `pet_head_interval` / `pet_head_long_press_ms` /
-  `pet_head_file`: head-pat quote toggle, default texts, quote rotation interval while held (seconds), long-press threshold (milliseconds),
+- `pet_head_enabled` / `pet_head_texts` / `pet_head_file`: head-pat quote toggle, default texts,
   and quote library JSON file path;
 - `auto_start`: launch-at-startup toggle (kept in sync with the registry Run key);
 - `accounts`: account name → `{"platform": "<platform id>", "api_key": "..."}`;
@@ -126,16 +140,24 @@ Other platforms can be added in `platforms.py` using the same interface (`fetch(
 Peak hours are Beijing time, Monday to Friday 9:00-12:00 and 14:00-18:00; all other times are idle periods.
 On a period switch, a notification pops up and stays visible until you click "Got it" or confirm the bubble.
 
+## Development and Testing
+
+An offscreen self-check (no real GUI needed, 28 assertions):
+
+```bash
+python tests/offscreen_smoke.py
+```
+
 ## Packaging (Optional)
 
 For distributing to end users, package with PyInstaller:
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" main.py
+pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" --add-data "icon.png;." main.py
 ```
 
-Packaging notes: `config.json` is not packaged (it contains API Keys) and is generated automatically in the exe's directory on first run;
+Packaging notes: `config.json` is not packaged (it contains API Keys) and is generated automatically in the exe's directory on first run; the tray icon `icon.png` must be bundled too (see command);
 the bundled assets and the two default quote libraries (`assets/*_quotes.json`) are extracted from the package directory and can be customized.
 
 ## Security Note
