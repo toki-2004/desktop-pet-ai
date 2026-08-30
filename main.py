@@ -502,6 +502,10 @@ class DesktopPet:
         tray.setToolTip("桌宠")
         tray.activated.connect(self._on_tray_activated)
         tray.show()
+        # Windows 11 默认把新托盘图标收纳进隐藏区：启动通知帮用户确认与定位
+        tray.showMessage("桌宠已启动",
+                         "托盘图标已就绪；若任务栏上没有看到，请点任务栏角落的 ^ 展开隐藏图标。",
+                         QSystemTrayIcon.Information, 5000)
         self._tray = tray
         self._tray_menu = menu
 
