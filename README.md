@@ -139,7 +139,7 @@ python main.py
 
 ## 开发与测试
 
-离屏自检（无需真实 GUI 环境，28 项断言）：
+离屏自检（无需真实 GUI 环境，50 项断言）：
 
 ```bash
 python tests/offscreen_smoke.py
