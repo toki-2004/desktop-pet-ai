@@ -253,6 +253,7 @@ class PetWindow(QWidget):
         self._apply_balance_style()
         self.balance_label.setVisible(bool(self.config.get("show_balance", True)))
         self._place_balance()
+        self._place_status()
         self._apply_top_flag()
         # 时段状态常态显示：文案可被 config 自定义，这里同步刷新并随窗口显示
         self.status_label.set_state(is_peak())
@@ -321,6 +322,7 @@ class PetWindow(QWidget):
         self.pet_label.setFixedSize(size)
         self.setFixedSize(size)
         self._place_balance()
+        self._place_status()
 
     @staticmethod
     def _fit(src_size):

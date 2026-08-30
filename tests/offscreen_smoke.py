@@ -177,6 +177,39 @@ cfg.set("pet_interact_image", big_saved or "")
 pet._play_interact_once()
 app.processEvents()
 
+# 7.6 播放/恢复的 resize 后，时段标签必须跟着归位（回归：曾卡在旧位置）
+wide_gif = os.path.join(tmp, "wide.gif")
+wide_frames = []
+for color in [(90, 140, 220), (220, 140, 90)]:
+    f = Image.new("RGBA", (400, 160), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(f)
+    dd.rounded_rectangle([10, 10, 390, 150], 30, fill=color + (255,))
+    wide_frames.append(f)
+wide_frames[0].save(wide_gif, save_all=True, append_images=wide_frames[1:], duration=30, loop=0)
+wide_saved = cfg.get("pet_interact_image")
+cfg.set("pet_interact_image", wide_gif)
+normal_h = pet.height()
+pet._play_interact_once()
+app.processEvents()
+check("status follows pet during playback", pet.status_label.y() == pet.y() + pet.height(),
+      (pet.status_label.y(), pet.y(), pet.height()))
+for _ in range(40):
+    app.processEvents()
+    if pet._interact_movie is None and pet.height() == normal_h:
+        break
+    l7 = QEventLoop()
+    QTimer.singleShot(50, l7.quit)
+    l7.exec_()
+check("pet restored to normal height", pet.height() == normal_h, (pet.height(), normal_h))
+check("status label back under pet after restore",
+      pet.status_label.y() == pet.y() + pet.height(),
+      (pet.status_label.y(), pet.y() + pet.height()))
+check("status label centered under pet",
+      abs((pet.status_label.x() + pet.status_label.width() / 2) - (pet.x() + pet.width() / 2)) <= 1)
+cfg.set("pet_interact_image", wide_saved or "")
+pet._play_interact_once()
+app.processEvents()
+
 # 8. 余额看门狗：查询挂死时按时放弃并重试成功
 import time as _time  # noqa: E402
 import platforms  # noqa: E402
