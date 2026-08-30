@@ -156,7 +156,7 @@ On a period switch, a notification pops up and stays visible until you click "Go
 
 ## Development and Testing
 
-An offscreen self-check (no real GUI needed, 73 assertions):
+An offscreen self-check (no real GUI needed, 75 assertions):
 
 ```bash
 python tests/offscreen_smoke.py

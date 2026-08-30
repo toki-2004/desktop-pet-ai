@@ -108,6 +108,9 @@ class BalanceLabel(QLabel):
             fs = max(8, min(30, int(round(self._current_fs() * factor))))
             self.config.set("balance_font_size", fs)
             self._apply_style()
+            # 状态标签字号跟随全局字号（-2）：滚轮入口也要同步刷新（2026-08-30 修复）
+            if self.pet_window is not None:
+                self.pet_window.status_label._apply_style()
         event.accept()
 
     def mousePressEvent(self, event):

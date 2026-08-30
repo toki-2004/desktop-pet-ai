@@ -401,6 +401,20 @@ dlg_f._save()
 check("settings save writes unified font size", cfg_f.get("balance_font_size") == 16,
       cfg_f.get("balance_font_size"))
 
+# 滚轮调字号：状态标签必须同步刷新（曾漏掉该入口，只有设置路径生效）
+from PyQt5.QtCore import QPoint  # noqa: E402
+from PyQt5.QtGui import QWheelEvent  # noqa: E402
+
+wheel_up = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, 120),
+                       Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+QApplication.sendEvent(pet_f.balance_label, wheel_up)
+app.processEvents()
+fs_wheel = int(cfg_f.get("balance_font_size"))
+check("wheel scales balance font", fs_wheel > 16, fs_wheel)
+check("wheel syncs status label font",
+      pet_f.status_label.font().pointSize() == max(9, fs_wheel - 2),
+      (fs_wheel, pet_f.status_label.font().pointSize()))
+
 # 12. 天气：WMO 分类映射 + 看门狗（模拟 DNS 挂死）
 from weather import classify as _wclass  # noqa: E402
 
