@@ -218,7 +218,7 @@ class PetWindow(QWidget):
         self._current_size = QSize(MAX_PET_SIZE, MAX_PET_SIZE)
         self._scale = float(self.config.get("pet_scale", 1.0) or 1.0)
         self._interact_movie = None
-        self._interact_shown = False
+        self._interact_total = 0
         self._pressed = False
         self._press_timer = QTimer(self)
         self._press_timer.setSingleShot(True)
@@ -371,12 +371,13 @@ class PetWindow(QWidget):
             return
         label.move(self.x() + 6, self.y() + 6)
 
-    # ---------- 左键交互（按下即播放，循环，松开恢复） ----------
+    # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
             self._pressed = True
-            self._interact_shown = self._show_interact()
+            # 单击即从头播放一遍互动 GIF；连点会终止上一次播放再从头重放
+            self._play_interact_once()
             if self.config.get("pet_head_enabled", True):
                 press_ms = max(300, int(self.config.get("pet_head_long_press_ms", 600) or 600))
                 self._press_timer.start(press_ms)
@@ -388,8 +389,6 @@ class PetWindow(QWidget):
             self._pressed = False
             self._press_timer.stop()
             self._head_timer.stop()
-            if self._interact_shown:
-                self._show_normal()
             if self._drag_pos is not None:
                 # 位置在拖动结束时落盘一次：moveEvent 每像素写盘的旧做法会高频重写 config.json
                 self.config.set("pet_pos", [self.x(), self.y()])
@@ -409,34 +408,64 @@ class PetWindow(QWidget):
         else:
             self._head_timer.stop()
 
-    def _show_interact(self):
+    def _play_interact_once(self):
+        """左键单击：互动 GIF 从头播放一遍，播完自动恢复常态图。
+
+        每次都重建 QMovie 并从头 start——连点时上一次播放随即被终止，
+        不会出现两个动画叠加或越播越卡。静态互动图则短暂显示后恢复。
+        """
         path = self.config.get("pet_interact_image") or ""
         if not path or not os.path.exists(path):
             return False
         if self._movie:
             self._movie.stop()
-        if self._interact_movie:
+        if self._interact_movie is not None:
             self._interact_movie.stop()
+            self._interact_movie.deleteLater()
             self._interact_movie = None
         self.pet_label.clear()
+        size = None
         if path.lower().endswith(".gif"):
-            self._interact_movie = QMovie(path)
-            self.pet_label.setMovie(self._interact_movie)
-            self._interact_movie.start()
-            frame = self._interact_movie.frameRect()
+            movie = QMovie(path)
+            self._interact_movie = movie
+            movie.frameChanged.connect(self._on_interact_frame)
+            # 帧总数优先用 QImageReader 预读（个别 GIF 的 frameCount 会返回 0）
+            reader = QImageReader(path)
+            total = reader.imageCount()
+            self._interact_total = total if total and total > 0 else 0
+            movie.start()
+            if self._interact_total <= 0:
+                self._interact_total = movie.frameCount()
+            frame = movie.frameRect()
             nat = frame.size() if frame.isValid() else self._current_size
             size = self._fit_to(self._current_size, nat)
-            self._interact_movie.setScaledSize(size)
+            movie.setScaledSize(size)
+            self.pet_label.setMovie(movie)
         else:
             pm = QPixmap(path)
             if pm.isNull():
                 return False
             size = self._fit_to(self._current_size, pm.size())
             self.pet_label.setPixmap(pm.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            # 静态图没有帧回调：定时恢复常态
+            QTimer.singleShot(600, self._show_normal)
         self.pet_label.setFixedSize(size)
         self.setFixedSize(size)
         self._place_balance()
+        self._place_status()
         return True
+
+    def _on_interact_frame(self, frame_no):
+        """互动 GIF 播到最后一帧：停止并恢复常态（只播一遍的关键）。"""
+        movie = self._interact_movie
+        if movie is None:
+            return
+        total = self._interact_total or movie.frameCount()
+        if total > 0 and frame_no >= total - 1:
+            self._interact_movie = None
+            movie.stop()
+            movie.deleteLater()
+            self._show_normal()
 
     def _show_normal(self):
         self._load_pet(self._normal_path or self.config.get("pet_image") or self.default_image)
