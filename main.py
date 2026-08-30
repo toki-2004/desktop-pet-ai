@@ -163,22 +163,27 @@ class SelfTalkMonitor(QObject):
 
     # ---------- 语录分类 ----------
     def _classify(self, text):
+        """返回 (触发类别, 正文)。
+
+        [tag] 前缀强制指定类别；否则按关键词归类。time 大类必须细分到
+        具体时段（早安/午饭/...），细分不出则归入随机池——否则时段窗口
+        会从随机池抽到错时段的语录（如下午弹"夜深了"）。
+        """
         text = str(text).strip()
         m = re.match(r"^\[(\w+)\]\s*(.*)$", text)
         forced = m.group(1).lower() if m else None
         body = m.group(2) if m else text
         if forced == "time":
             forced = self._time_subtag(body) or "random"
-        tag = forced
-        if tag is None:
-            for t, kws in self.KEYWORDS.items():
-                if any(k in body for k in kws):
-                    tag = t
-                    break
-        if tag is None or (forced is None and tag == "time"):
-            # 无时段细分关键词的 time 类归入随机池
-            tag = "random"
-        return tag, body
+        if forced is not None:
+            return forced, body
+        for t, kws in self.KEYWORDS.items():
+            if any(k in body for k in kws):
+                if t == "time":
+                    sub = self._time_subtag(body)
+                    return (sub, body) if sub else ("random", body)
+                return t, body
+        return "random", body
 
     def _time_subtag(self, body):
         for kws, sub in self.TIME_SUBTAG:
@@ -195,7 +200,12 @@ class SelfTalkMonitor(QObject):
         return len(texts)
 
     def _pick(self, tag):
-        pool = self._pools.get(tag) or self._pools.get("random") or []
+        pool = self._pools.get(tag)
+        if not pool:
+            # 时段子池为空时宁可沉默，也不回退随机池（否则时段错配，如下午弹"夜深了"）
+            if tag.startswith("time_"):
+                return None
+            pool = self._pools.get("random") or []
         return random.choice(pool) if pool else None
 
     def _emit_tag(self, tag):

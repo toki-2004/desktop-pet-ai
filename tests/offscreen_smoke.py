@@ -248,13 +248,15 @@ for _ in range(30):
 check("retry after watchdog succeeds", got and balances8[-1].startswith("¥"), balances8)
 check("polling released after success", m2._polling is False and m2._timeouts == 0)
 
-# 10. 自言自语情境触发：分类 / 时点 / 健康 / 求关注 / 余额变动
+# 10. 自言自语情境触发：分类 / 时点 / 健康 / 求关注 / 余额变动 / 时段错配回归
 import json as _json  # noqa: E402
 from datetime import datetime as _dt  # noqa: E402
 
 talk10 = os.path.join(tmp, "talk10.json")
 _json.dump([
     "[time] 早安主人，新的一天也要加油哦～",
+    "下午茶时间～主人喝口水吧。",
+    "夜深了……主人早点睡嘛。",
     "记得喝水哦，主人。",
     "主人，摸摸我嘛～",
     "余额稳稳的，安全感满满～",
@@ -264,33 +266,45 @@ t10 = main_mod.SelfTalkMonitor(cfg2, talk10)
 said = []
 t10.talk.connect(said.append)
 
+# 分类回归：夜深了必须进 time_night 池，且绝不进随机池
 check("classify time_morning", any("早安" in x for x in t10._pools.get("time_morning", [])))
+check("classify time_tea", any("下午茶" in x for x in t10._pools.get("time_tea", [])))
+check("classify time_night", any("夜深了" in x for x in t10._pools.get("time_night", [])))
 check("classify health", any("喝水" in x for x in t10._pools.get("health", [])))
 check("classify attention", any("摸摸" in x for x in t10._pools.get("attention", [])))
 check("classify balance", any("余额" in x for x in t10._pools.get("balance", [])))
 check("classify random", "普通随机话语。" in t10._pools.get("random", []))
+check("REGRESSION: night quote NOT in random pool",
+      all("夜深了" not in x for x in t10._pools.get("random", [])))
 
-t10._now_fn = lambda: _dt(2026, 8, 30, 9, 0)  # 周日上午 9 点
+# 下午（14 点）只触发下午茶窗口：绝不弹"夜深了"
+t10._now_fn = lambda: _dt(2026, 8, 30, 14, 0)
 t10._check_context()
-check("time window fired (morning)", any(x.startswith("早安") for x in said), said)
-count_after_time = len(said)
+check("afternoon fires tea quote", any("下午茶" in x for x in said), said)
+check("REGRESSION: afternoon never says 夜深了", not any("夜深了" in x for x in said), said)
+count_after_tea = len(said)
 t10._check_context()
-check("time rule fires once per day", len(said) == count_after_time)
+check("tea rule fires once per day", len(said) == count_after_tea)
 
-t10._mono_fn = lambda: 10_000_000.0  # 快进单调时钟（越过大冷却阈值）
-t10._idle_fn = lambda: 46 * 60       # 闲置 46 分钟
+# 深夜（23 点）触发夜深语录
+t10._now_fn = lambda: _dt(2026, 8, 30, 23, 30)
+t10._check_context()
+check("night window fires 夜深了", any("夜深了" in x for x in said), said)
+
+# 健康 / 求关注 / 余额变动
+t10._mono_fn = lambda: 10_000_000.0
+t10._idle_fn = lambda: 46 * 60
 t10._check_context()
 check("idle health quote fired", any("喝水" in x for x in said))
 t10._check_context()
 check("health quote cooldown", len([x for x in said if "喝水" in x]) == 1)
-
 t10._check_context()
 check("attention quote fired after long no-interaction", any("摸摸" in x for x in said))
 t10.balance_chance = 1.0
 t10.on_balance_change()
-check("balance quote fired on change", any("余额" in x for x in said))
+check("balance quote fired on change", any("余额稳稳" in x for x in said))
 t10.on_balance_change()
-check("balance quote throttled", len([x for x in said if "余额" in x and "安全感" in x]) == 1)
+check("balance quote throttled", len([x for x in said if "余额稳稳" in x]) == 1)
 
 # 9. 完整应用级回归：DesktopPet 装配后余额标签必须脱离占位
 # （2026-08-30 事故：托盘编辑把 _wire 拦腰截断，余额/时段/语录信号整体失联，
