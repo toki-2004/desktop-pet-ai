@@ -103,6 +103,11 @@ check("status initial matches is_peak", (sl.text() == "高峰时段") == is_peak
 sl.set_state(not is_peak())
 check("status text flips with state", (sl.text() == "高峰时段") != is_peak())
 
+# 6. main 模块级导入自检：托盘功能用到 QIcon 等符号（import 不触发 main()）
+import main as main_mod  # noqa: E402
+for sym in ("QIcon", "QSystemTrayIcon", "QMenu"):
+    check("main module has " + sym, hasattr(main_mod, sym))
+
 # 5. 配色渲染：高峰红系/空闲绿系，纯色边框 + 半透明底纹
 def render_colors(state):
     sl.set_state(state)

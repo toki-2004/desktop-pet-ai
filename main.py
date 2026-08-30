@@ -7,7 +7,8 @@ import shutil
 import sys
 
 from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 from config import Config
 from pet_window import PetWindow
@@ -176,6 +177,47 @@ class DesktopPet:
         w.autoStartRequested.connect(self._on_auto_start)
         w.petHeadRequested.connect(self._show_pet_head)
         w.moved.connect(self._on_moved)
+        self._setup_tray()
+
+    def _setup_tray(self):
+        """托盘图标：左键单击显示/隐藏桌宠，右键菜单（设置 / 显示隐藏 / 退出）。
+
+        补上"无托盘"的已知限制——桌宠找不到时也能从托盘隐藏/退出。
+        图标优先用打包资源目录的 icon.png，回退项目根目录同名文件。
+        """
+        icon_path = os.path.join(BUNDLE_DIR, "icon.png")
+        if not os.path.isfile(icon_path):
+            icon_path = os.path.join(PROJECT_DIR, "icon.png")
+        icon = QIcon(icon_path) if os.path.isfile(icon_path) else QIcon.fromTheme("applications-games")
+        tray = QSystemTrayIcon(icon)
+        menu = QMenu()
+        self._tray_toggle_action = menu.addAction("隐藏桌宠", self._toggle_pet_visible)
+        menu.addAction("通知设置…", lambda: self._open_settings(0))
+        menu.addAction("外观设置…", lambda: self._open_settings(1))
+        menu.addSeparator()
+        menu.addAction("退出", QApplication.instance().quit)
+        tray.setContextMenu(menu)
+        tray.setToolTip("桌宠")
+        tray.activated.connect(self._on_tray_activated)
+        tray.show()
+        self._tray = tray
+        self._tray_menu = menu
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.Trigger:  # 左键单击
+            self._toggle_pet_visible()
+
+    def _toggle_pet_visible(self):
+        w = self.window
+        show = not w.isVisible()
+        w.setVisible(show)
+        if show:
+            w.apply_config()  # 同步余额/时段标签的可见性与位置
+        else:
+            w.balance_label.hide()
+            w.status_label.hide()
+        if getattr(self, "_tray_toggle_action", None):
+            self._tray_toggle_action.setText("显示桌宠" if not show else "隐藏桌宠")
 
         m = self.monitor
         m.balanceUpdated.connect(w.set_balance_text)
