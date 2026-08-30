@@ -103,6 +103,23 @@ check("status initial matches is_peak", (sl.text() == "高峰时段") == is_peak
 sl.set_state(not is_peak())
 check("status text flips with state", (sl.text() == "高峰时段") != is_peak())
 
+# 5. 配色渲染：高峰红系/空闲绿系，纯色边框 + 半透明底纹
+def render_colors(state):
+    sl.set_state(state)
+    app.processEvents()
+    img = sl.grab().toImage()
+    w, h = img.width(), img.height()
+    return img.pixelColor(1, h // 2), img.pixelColor(w // 2, 4)  # 边框采样 / 底纹采样
+
+border_p, fill_p = render_colors(True)
+check("peak border is red family", border_p.red() > 150 and border_p.red() > border_p.green() + 40,
+      (border_p.red(), border_p.green(), border_p.blue()))
+check("peak fill is semi-transparent", 0 < fill_p.alpha() < 255, fill_p.alpha())
+border_i, fill_i = render_colors(False)
+check("idle border is green family", border_i.green() > border_i.red() + 20,
+      (border_i.red(), border_i.green(), border_i.blue()))
+check("idle fill is semi-transparent", 0 < fill_i.alpha() < 255, fill_i.alpha())
+
 print("")
 print("RESULT: {} passed, {} failed".format(passed, len(failed)))
 if failed:

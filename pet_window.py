@@ -178,16 +178,21 @@ class StatusLabel(QLabel):
         if self.pet_window is not None:
             self.pet_window._place_status()
 
+    # 配色（用户指定）：高峰=红色系，空闲=绿色系；纯色边框 + 半透明底纹 + 纯色文字
+    PALETTE = {
+        True: {"border": QColor("#E03E3E"), "text": QColor("#C62828"), "fill": QColor(224, 62, 62, 36)},
+        False: {"border": QColor("#27AE60"), "text": QColor("#1E7B4F"), "fill": QColor(39, 174, 96, 34)},
+    }
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        peak = bool(self._peak)
-        # 高峰=暖橙，空闲=绿色，一眼区分
-        p.setPen(QPen(QColor("#E28A2B" if peak else "#27AE60"), 1))
-        p.setBrush(QBrush(QColor("#FFF4E5" if peak else "#E8F7EE")))
+        c = self.PALETTE[bool(self._peak)]
+        p.setPen(QPen(c["border"], 1))
+        p.setBrush(c["fill"])
         p.drawRoundedRect(rect, 8, 8)
-        p.setPen(QColor("#9A5B10" if peak else "#1E7B4F"))
+        p.setPen(c["text"])
         p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
 
 
