@@ -6,6 +6,7 @@ build/
 dist/
 *.spec
 /icon.ico
+/DesktopPet-*.zip
 
 # 交接文档仅本地保留，不入库
 HANDOVER.md
