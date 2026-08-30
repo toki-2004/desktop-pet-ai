@@ -136,6 +136,11 @@ pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" m
 打包说明：`config.json` 不打包（含 API Key），首次运行会在 exe 同目录自动生成；
 自带素材与两个默认语录库（`assets/*_quotes.json`）从打包目录解出，可自定义。
 
+## 相关项目
+
+* [png-q-bounce](https://github.com/toki-2004/png-q-bounce)：把一张 PNG 一次性做成
+  Q 弹 GIF（只播一遍、保留透明背景），可直接用作桌宠的互动动画皮肤。
+
 ## 安全提示
 
 `config.json` 中保存的 DeepSeek API Key 为明文，请勿将该文件提交到任何仓库或
