@@ -156,6 +156,43 @@ check("drag actually moved the pet", (pet.x(), pet.y()) != pos_before)
 pet._play_interact_once()  # 清理：结束残留动画
 app.processEvents()
 
+# 8. 余额看门狗：查询挂死时按时放弃并重试成功
+import time as _time  # noqa: E402
+import platforms  # noqa: E402
+from balance import BalanceMonitor  # noqa: E402
+
+errors8 = []
+balances8 = []
+cfg2 = Config(os.path.join(tmp, "config_balance.json"))
+cfg2.set("accounts", {"测试账号": {"platform": "deepseek", "api_key": "sk-dummy"}})
+m2 = BalanceMonitor(cfg2, poll_timeout_ms=300)
+m2.fetchError.connect(errors8.append)
+m2.balanceUpdated.connect(lambda t, s: balances8.append(s))
+
+
+def hang_fetch(key):
+    _time.sleep(5)  # 模拟 DNS 卡死：requests timeout 管不到的无限挂起
+    return (9.99, "CNY")
+
+
+platforms.PROVIDERS["deepseek"].fetch = hang_fetch
+m2.start()
+loop5 = QEventLoop()
+QTimer.singleShot(700, loop5.quit)
+loop5.exec_()
+check("watchdog fires on hung fetch", any("查询超时" in e for e in errors8), errors8)
+platforms.PROVIDERS["deepseek"].fetch = lambda key: (12.34, "CNY")  # 恢复后离线模拟成功
+got = False
+for _ in range(30):
+    if balances8:
+        got = True
+        break
+    l6 = QEventLoop()
+    QTimer.singleShot(150, l6.quit)
+    l6.exec_()
+check("retry after watchdog succeeds", got and balances8[-1].startswith("¥"), balances8)
+check("polling released after success", m2._polling is False and m2._timeouts == 0)
+
 # 5. 配色渲染：高峰红系/空闲绿系，纯色边框 + 半透明底纹
 def render_colors(state):
     sl.set_state(state)

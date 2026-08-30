@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """DeepSeek 开放平台余额监控：轮询多账号，增减时发信号。"""
 import threading
+import time
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
@@ -20,11 +21,21 @@ class BalanceMonitor(QObject):
     balanceDown = pyqtSignal(str)            # 减少动画文本
     fetchError = pyqtSignal(str)
 
-    def __init__(self, config):
+    # requests 的 timeout 不覆盖域名解析（getaddrinfo 无超时）：DNS 被拦截/
+    # 卡死时 worker 线程会永久挂起。看门狗超过此时长即放弃本次查询并重试，
+    # 旧线程为 daemon，晚到的结果仍会正常刷新显示。
+    POLL_TIMEOUT_MS = 20000
+
+    def __init__(self, config, poll_timeout_ms=None):
         super().__init__()
         self.config = config
         self._last_total = None
         self._polling = False
+        self._timeouts = 0  # 连续超时次数：连续 3 次后放慢重试节奏
+        self._poll_timeout_ms = poll_timeout_ms or self.POLL_TIMEOUT_MS
+        self._watchdog = QTimer(self)
+        self._watchdog.setSingleShot(True)
+        self._watchdog.timeout.connect(self._on_poll_timeout)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.poll)
 
@@ -44,7 +55,20 @@ class BalanceMonitor(QObject):
             self.balanceUpdated.emit(0.0, "未绑定账号")
             return
         self._polling = True
+        self._watchdog.start(self._poll_timeout_ms)
         threading.Thread(target=self._worker, args=(accounts,), daemon=True).start()
+
+    def _on_poll_timeout(self):
+        """看门狗：worker 超时未归（DNS 卡死等），放弃并重试；连续超时则退避。"""
+        if not self._polling:
+            return  # 结果其实已经回来了（watchdog 只是晚了一步）
+        self._polling = False
+        self._timeouts += 1
+        self.fetchError.emit("查询超时")
+        if self._timeouts >= 3:
+            QTimer.singleShot(60000, self.poll)  # 连续 3 次超时后每分钟重试一次
+        else:
+            self.poll()
 
     def _worker(self, accounts):
         try:
@@ -77,5 +101,6 @@ class BalanceMonitor(QObject):
                 self.balanceUpdated.emit(total, text)
                 self.balanceDown.emit("-¥%.2f" % (self._last_total - total))
             self._last_total = total
+            self._timeouts = 0
         finally:
             self._polling = False
