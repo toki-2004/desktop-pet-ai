@@ -28,8 +28,10 @@ class ThinkingBalloon(QWidget):
         self._persistent = persistent
 
         # 字号统一：通知气泡与余额/浮动文字共用 balance_font_size（8-30）。
-        # 气泡尺寸按实际字体测量，字号增大时文字不裁切。
-        self._font_size = max(8, min(30, int(font_size or 14)))
+        # 视觉补偿：通知正文以汉字为主，同样 pt 下汉字墨迹明显大于余额的数字/拉丁
+        # 字形（本机宋体实测：14pt 数字墨迹高 16px ≈ 10pt 汉字），故按约 70% 缩放
+        # 显示，让通知看起来与余额文本一致；气泡尺寸按实际字体测量，字号变化不裁切。
+        self._font_size = max(6, min(30, int(round((int(font_size or 14)) * 0.7))))
         font = QFont()
         font.setPointSize(self._font_size)
         font.setBold(True)

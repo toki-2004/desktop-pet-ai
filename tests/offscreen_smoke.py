@@ -381,8 +381,11 @@ cfg_f = Config(os.path.join(tmp, "font_config.json"))
 cfg_f.set("balance_font_size", 22)
 b_big = ThinkingBalloon("主人，有新消息啦！", font_size=22)
 b_small = ThinkingBalloon("主人，有新消息啦！", font_size=8)
-check("balloon font size follows config", b_big._font_size == 22 and b_big.width() > b_small.width(),
-      (b_big.width(), b_small.width()))
+check("balloon font size follows config with CJK visual compensation",
+      b_big._font_size == max(6, round(22 * 0.7))
+      and b_small._font_size == max(6, round(8 * 0.7))
+      and b_big.width() > b_small.width(),
+      (b_big._font_size, b_small._font_size, b_big.width(), b_small.width()))
 
 pet_f = PetWindow(cfg_f, default_image=normal_png)
 pet_f.balance_label._apply_style()

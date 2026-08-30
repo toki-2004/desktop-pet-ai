@@ -62,7 +62,9 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
     file no longer silently drops settings.
 18. **Unified font size**: notification balloon, balance text, and floating text share one font size
     (default 14pt, range 8-30); adjust it in the Notification tab ("Notification/balance/floating font size")
-    or by scrolling the mouse wheel over the balance text - all three scale together.
+    or by scrolling the mouse wheel over the balance text - all three scale together. The notification
+    balloon is mostly CJK text, which looks larger than digits at the same point size, so it renders at
+    about 70% to visually match the balance text.
 
 ## Screenshots
 

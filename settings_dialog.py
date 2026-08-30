@@ -113,6 +113,7 @@ class SettingsDialog(QDialog):
         self.font_spin.setRange(8, 30)
         self.font_spin.setValue(int(self.config.get("balance_font_size", 14) or 14))
         self.font_spin.setSuffix(" pt")
+        self.font_spin.setToolTip("余额/浮动文字按此值；通知气泡为汉字，视觉上按约 70% 缩放显示以对齐")
         form.addRow("通知/余额/浮动文字字号", self.font_spin)
 
         self.fill_edit, self.fill_btn = self._color_row(form, "云线填充色", self.config.get("balloon_fill", "#FFFFFF"))
