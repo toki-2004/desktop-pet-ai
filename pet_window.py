@@ -225,6 +225,7 @@ class PetWindow(QWidget):
         self._scale = float(self.config.get("pet_scale", 1.0) or 1.0)
         self._interact_movie = None
         self._interact_total = 0
+        self._normal_display_size = None  # 常态桌宠的实际显示尺寸（互动动画的上限）
         self._press_global = None   # 按下时的全局位置：用于区分拖动与单击
         self._press_moved = False
         self._scale_save_timer = QTimer(self)
@@ -312,10 +313,11 @@ class PetWindow(QWidget):
         self._current_size = size
         if self._movie:
             self._movie.setScaledSize(size)
+            self._normal_display_size = QSize(size)
         elif not self._normal_pixmap.isNull():
-            self.pet_label.setPixmap(
-                self._normal_pixmap.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+            fitted = self._normal_pixmap.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.pet_label.setPixmap(fitted)
+            self._normal_display_size = fitted.size()
         self.pet_label.setFixedSize(size)
         self.setFixedSize(size)
         self._place_balance()
@@ -417,27 +419,31 @@ class PetWindow(QWidget):
             self._interact_movie = None
         self.pet_label.clear()
         size = None
+        # 以常态桌宠的实际显示尺寸为上限：互动动画永远不大于常态桌宠
+        box = self._normal_display_size or self._current_size
         if path.lower().endswith(".gif"):
-            movie = QMovie(path)
-            self._interact_movie = movie
-            movie.frameChanged.connect(self._on_interact_frame)
-            # 帧总数优先用 QImageReader 预读（个别 GIF 的 frameCount 会返回 0）
+            # 尺寸用 QImageReader 预读（不启播）；缩放必须在 start 之前设置，
+            # 否则首帧会按原生尺寸渲染一瞬（互动 GIF 原生较大时表现为骤然放大）
             reader = QImageReader(path)
             total = reader.imageCount()
             self._interact_total = total if total and total > 0 else 0
+            nat = reader.size()
+            if nat is None or nat.isEmpty():
+                nat = self._current_size
+            size = self._fit_to(box, nat)
+            movie = QMovie(path)
+            self._interact_movie = movie
+            movie.frameChanged.connect(self._on_interact_frame)
+            movie.setScaledSize(size)
+            self.pet_label.setMovie(movie)
             movie.start()
             if self._interact_total <= 0:
                 self._interact_total = movie.frameCount()
-            frame = movie.frameRect()
-            nat = frame.size() if frame.isValid() else self._current_size
-            size = self._fit_to(self._current_size, nat)
-            movie.setScaledSize(size)
-            self.pet_label.setMovie(movie)
         else:
             pm = QPixmap(path)
             if pm.isNull():
                 return False
-            size = self._fit_to(self._current_size, pm.size())
+            size = self._fit_to(box, pm.size())
             self.pet_label.setPixmap(pm.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             # 静态图没有帧回调：定时恢复常态
             QTimer.singleShot(600, self._show_normal)

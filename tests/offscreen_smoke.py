@@ -156,6 +156,27 @@ check("drag actually moved the pet", (pet.x(), pet.y()) != pos_before)
 pet._play_interact_once()  # 清理：结束残留动画
 app.processEvents()
 
+# 7.5 互动动画尺寸上限：大于常态桌宠的 GIF 必须缩到常态显示尺寸以内
+big_gif = os.path.join(tmp, "big.gif")
+big_frames = []
+for color in [(200, 80, 80), (80, 200, 80)]:
+    f = Image.new("RGBA", (400, 500), (0, 0, 0, 0))
+    d = ImageDraw.Draw(f)
+    d.ellipse([30, 30, 370, 470], fill=color + (255,))
+    big_frames.append(f)
+big_frames[0].save(big_gif, save_all=True, append_images=big_frames[1:], duration=40, loop=0)
+big_saved = cfg.get("pet_interact_image")
+cfg.set("pet_interact_image", big_gif)
+pet._play_interact_once()
+app.processEvents()
+cap = pet._normal_display_size or pet._current_size
+lw, lh = pet.pet_label.width(), pet.pet_label.height()
+check("interact capped to normal display size", lw <= cap.width() + 1 and lh <= cap.height() + 1,
+      (lw, lh, cap.width(), cap.height()))
+cfg.set("pet_interact_image", big_saved or "")
+pet._play_interact_once()
+app.processEvents()
+
 # 8. 余额看门狗：查询挂死时按时放弃并重试成功
 import time as _time  # noqa: E402
 import platforms  # noqa: E402
