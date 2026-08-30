@@ -7,6 +7,8 @@ from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 from platforms import PROVIDERS
 
+import petlog
+
 
 def parse_account(acc):
     """兼容旧格式（纯字符串 = DeepSeek Key）与新格式（平台 + Key）。"""
@@ -55,6 +57,7 @@ class BalanceMonitor(QObject):
             self.balanceUpdated.emit(0.0, "未绑定账号")
             return
         self._polling = True
+        petlog.log("balance poll start (%d accounts)" % len(accounts))
         self._watchdog.start(self._poll_timeout_ms)
         threading.Thread(target=self._worker, args=(accounts,), daemon=True).start()
 
@@ -63,6 +66,7 @@ class BalanceMonitor(QObject):
         if not self._polling:
             return  # 结果其实已经回来了（watchdog 只是晚了一步）
         self._polling = False
+        petlog.log("balance poll TIMEOUT (#%d)" % self._timeouts)
         self._timeouts += 1
         self.fetchError.emit("查询超时")
         if self._timeouts >= 3:
@@ -88,10 +92,12 @@ class BalanceMonitor(QObject):
                 except Exception as e:
                     errors.append("%s: %s" % (name, e))
             if not ok:
+                petlog.log("balance fetch all failed: %s" % "；".join(errors))
                 self.fetchError.emit("；".join(errors))
                 return
 
             text = "¥%.2f" % total
+            petlog.log("balance fetch ok: %s" % text)
             if self._last_total is None or abs(total - self._last_total) < 0.005:
                 self.balanceUpdated.emit(total, text)
             elif total > self._last_total:

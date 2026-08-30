@@ -11,6 +11,8 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 from config import Config
+import petlog
+petlog.install_excepthooks()
 from pet_window import PetWindow
 from balloon import ThinkingBalloon
 from balance import BalanceMonitor
