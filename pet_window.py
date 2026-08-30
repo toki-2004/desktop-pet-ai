@@ -226,6 +226,8 @@ class PetWindow(QWidget):
         self._interact_movie = None
         self._interact_total = 0
         self._normal_display_size = None  # 常态桌宠的实际显示尺寸（互动动画的上限）
+        self._status_frozen = False       # 互动播放中：时段标签冻结在常态位置不动
+        self._pre_interact_rect = None    # 点击前的窗口几何（冻结定位的基准）
         self._press_global = None   # 按下时的全局位置：用于区分拖动与单击
         self._press_moved = False
         self._scale_save_timer = QTimer(self)
@@ -378,11 +380,13 @@ class PetWindow(QWidget):
     def _place_status(self):
         # 时段状态放在桌宠正下部（用户指定）：文本框上缘紧贴桌宠窗口下缘，水平居中。
         # StatusLabel 构造期间会回调到这里，此时 status_label 尚未挂到 self 上。
+        # 互动 GIF 播放中冻结在常态位置不动（用户指定）。
         label = getattr(self, "status_label", None)
         if label is None:
             return
-        x = self.x() + max(0, (self.width() - label.width()) // 2)
-        label.move(x, self.y() + self.height())
+        rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
+        x = rect.x() + max(0, (rect.width() - label.width()) // 2)
+        label.move(x, rect.y() + rect.height())
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):
@@ -413,6 +417,10 @@ class PetWindow(QWidget):
         path = self.config.get("pet_interact_image") or ""
         if not path or not os.path.exists(path):
             return False
+        if not self._status_frozen:
+            # 记录点击前的窗口几何：播放期间时段标签固定在这个位置不动
+            self._pre_interact_rect = self.geometry()
+            self._status_frozen = True
         if self._movie:
             self._movie.stop()
         if self._interact_movie is not None:
@@ -469,6 +477,9 @@ class PetWindow(QWidget):
 
     def _show_normal(self):
         self._load_pet(self._normal_path or self.config.get("pet_image") or self.default_image)
+        # 恢复常态后解冻（恢复后的几何与冻结值一致，定位结果不变）
+        self._status_frozen = False
+        self._pre_interact_rect = None
 
     # ---------- 浮动文字动画 ----------
     def show_float_text(self, text, color):

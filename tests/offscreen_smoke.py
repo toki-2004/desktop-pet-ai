@@ -189,10 +189,11 @@ wide_frames[0].save(wide_gif, save_all=True, append_images=wide_frames[1:], dura
 wide_saved = cfg.get("pet_interact_image")
 cfg.set("pet_interact_image", wide_gif)
 normal_h = pet.height()
+status_rest_y = pet.status_label.y()
 pet._play_interact_once()
 app.processEvents()
-check("status follows pet during playback", pet.status_label.y() == pet.y() + pet.height(),
-      (pet.status_label.y(), pet.y(), pet.height()))
+check("status label frozen during playback", pet.status_label.y() == status_rest_y,
+      (pet.status_label.y(), status_rest_y))
 for _ in range(40):
     app.processEvents()
     if pet._interact_movie is None and pet.height() == normal_h:
