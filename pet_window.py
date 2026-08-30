@@ -3,6 +3,7 @@
 左键交互（单击播放一遍互动 GIF 并换一条摸头语录，拖动不触发；连点从头重放）、
 时段常态显示（桌宠正下部）。"""
 import os
+import threading
 import sys
 import ctypes
 
@@ -11,6 +12,7 @@ from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageR
 from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication
 
 from scheduler import is_peak
+import petlog
 
 MAX_PET_SIZE = 240
 MIN_PET_SIZE = 30
@@ -47,7 +49,10 @@ def set_topmost_flag(widget, on):
 
 
 class BalanceLabel(QLabel):
-    """余额文本标签（独立置顶小窗口）：可拖出图片范围，滚轮调整字号。"""
+    """余额文本标签（独立置顶小窗口）：滚轮调整字号，可拖动并记住位置。
+
+    文本更新统一走 set_balance()——带日志，便于定位"信号发了但标签没变"。
+    """
 
     def __init__(self, config, parent=None):
         super().__init__(
@@ -58,6 +63,8 @@ class BalanceLabel(QLabel):
         self.config = config
         self.pet_window = parent
         self._drag_pos = None
+        self.setText("余额…")
+        self._apply_style()
 
     def set_top_flag(self, on):
         """同步"显示在最上层"开关：与桌宠/通知/浮动字保持一致。"""
@@ -65,6 +72,13 @@ class BalanceLabel(QLabel):
 
     def _current_fs(self):
         return int(self.config.get("balance_font_size", 14) or 14)
+
+    def set_balance(self, text):
+        if text == self.text():
+            return
+        petlog.log("balance label: %r -> %r" % (self.text(), text))
+        self.setText(text)
+        self._apply_style()
 
     def _apply_style(self):
         fs = self._current_fs()
@@ -333,8 +347,9 @@ class PetWindow(QWidget):
 
     # ---------- 余额常态显示 ----------
     def set_balance_text(self, total, text):
-        self.balance_label.setText(text)
-        self.balance_label._apply_style()
+        # 余额更新唯一入口（信号槽）：日志用于区分"信号没到"与"到了没画"
+        petlog.log("set_balance_text %r (thread %s)" % (text, threading.get_ident()))
+        self.balance_label.set_balance(text)
 
     def set_balance_visible(self, visible):
         self.balance_label.setVisible(visible)
@@ -344,13 +359,17 @@ class PetWindow(QWidget):
         self.balance_label._apply_style()
 
     def _place_balance(self):
+        # BalanceLabel 构造期间会回调到这里，此时 balance_label 尚未挂到 self 上
+        label = getattr(self, "balance_label", None)
+        if label is None:
+            return
         off = self.config.get("balance_offset")
         if isinstance(off, list) and len(off) == 2:
             dx, dy = int(off[0]), int(off[1])
         else:
-            dx = self.width() - self.balance_label.width() - 6
+            dx = label.width() and (self.width() - label.width() - 6) or 6
             dy = 6
-        self.balance_label.move(self.x() + dx, self.y() + dy)
+        label.move(self.x() + dx, self.y() + dy)
 
     def _place_status(self):
         # 时段状态放在桌宠正下部（用户指定）：文本框上缘紧贴桌宠窗口下缘，水平居中。

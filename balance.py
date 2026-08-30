@@ -97,7 +97,7 @@ class BalanceMonitor(QObject):
                 return
 
             text = "¥%.2f" % total
-            petlog.log("balance fetch ok: %s" % text)
+            petlog.log("balance fetch ok: %s (emit from thread %s)" % (text, threading.get_ident()))
             if self._last_total is None or abs(total - self._last_total) < 0.005:
                 self.balanceUpdated.emit(total, text)
             elif total > self._last_total:
