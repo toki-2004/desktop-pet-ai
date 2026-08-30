@@ -3,9 +3,13 @@
 import json
 import os
 import random
+import re
 import shutil
 import threading
+import time
 import sys
+
+from datetime import datetime
 
 from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt5.QtGui import QIcon
@@ -71,42 +75,210 @@ def load_quote_file(path, fallback):
     return [str(t).strip() for t in (fallback or []) if str(t).strip()]
 
 
+def _input_idle_seconds():
+    """距上次键鼠输入的秒数（Windows GetLastInputInfo，无新依赖）。"""
+    try:
+        import ctypes
+
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(lii)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+            return max(0.0, (ctypes.windll.kernel32.GetTickCount() - lii.dwTime) / 1000.0)
+    except Exception:
+        pass
+    return 0.0
+
+
 class SelfTalkMonitor(QObject):
-    """挂机自言自语：按随机间隔从文本库取一条触发通知。"""
+    """情境自言自语：按语录内容自动分类，用不同的触发方式呈现。
+
+    触发方式（按内容关键词自动归类；也可在语录前加 [标签] 前缀强制指定，
+    显示时自动去掉前缀，如 "[time] 早安主人，新的一天也要加油哦～"）：
+      [time]      时点问候：进入对应时间段后当天触发一次（早安/午饭/下午茶/夜晚/周末）
+      [health]    健康提醒：键鼠闲置满 45 分钟触发一次（久坐/喝水/活动/护眼）
+      [attention] 求关注：超过 90 分钟没有摸头/单击互动时触发
+      [balance]   余额变动：余额增减事件后概率触发（每小时至多一次）
+      [random]    随机闲聊：按设置的间隔随机触发（原有行为）
+    """
 
     talk = pyqtSignal(str)
+
+    KEYWORDS = {
+        "time": ("早安", "中午", "下午茶", "天黑", "夜深", "深夜", "周末", "夕阳",
+                 "晚安", "零点", "清晨", "晚饭"),
+        "health": ("久坐", "喝水", "伸懒腰", "眼睛", "肩", "健康", "揉肩", "走两步",
+                   "深呼吸", "三餐", "午饭", "吃饭", "站起来", "水杯", "活动", "保暖",
+                   "护眼", "休息眼睛"),
+        "balance": ("余额", "钱包", "支出", "账单"),
+        "work": ("代码", "Bug", "编译", "键盘", "工作", "效率", "保存", "产出"),
+        "weather": ("下雨", "阳光", "天气", "起风"),
+        "attention": ("摸摸", "陪聊", "想我", "点点我", "无聊", "聊聊天", "陪我"),
+        "game": ("游戏", "操作", "胜利"),
+    }
+    TIME_SUBTAG = (  # time 大类内部的时段细分（按内容关键词）
+        (("早安", "清晨"), "time_morning"),
+        (("午饭",), "time_lunch"),
+        (("下午茶",), "time_tea"),
+        (("天黑", "夕阳", "傍晚", "晚饭"), "time_evening"),
+        (("夜深", "深夜", "零点", "早点睡"), "time_night"),
+        (("周末",), "time_weekend"),
+    )
+    TIME_WINDOWS = [  # (起始时, 结束时, time 子标签)——每天每段至多触发一次
+        (6, 10, "time_morning"),
+        (11, 13, "time_lunch"),
+        (14, 16, "time_tea"),
+        (18, 20, "time_evening"),
+        (23, 24, "time_night"),
+        (0, 5, "time_night"),
+    ]
+    WEEKEND_WINDOW = (9, 21)       # 周末白天
+    IDLE_MINUTES = 45              # 闲置多久触发健康提醒
+    ATTENTION_MINUTES = 90         # 多久没有互动触发求关注
+    BALANCE_CHANCE = 0.35          # 余额变动后触发余额语录的概率
+    BALANCE_THROTTLE_S = 3600      # 余额语录冷却
 
     def __init__(self, config, text_file):
         super().__init__()
         self.config = config
         self.text_file = text_file
-        self._texts = []
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._fire)
+        self._pools = {}
+        self._timer = QTimer(self)          # random：随机闲聊
+        self._timer.timeout.connect(self._fire_random)
+        self._context_timer = QTimer(self)  # time/health/attention：情境检查
+        self._context_timer.timeout.connect(self._check_context)
+        self._last_pat = 0.0      # monotonic：最近一次摸头/单击互动
+        self._last_attention = 0.0
+        self._last_health = 0.0
+        self._last_balance_quote = 0.0
+        self._fired_rules = {}    # time 规则 -> 已触发日期
+        # 可注入（测试/外部调整）
+        self._now_fn = datetime.now
+        self._mono_fn = time.monotonic
+        self._idle_fn = _input_idle_seconds
+        self.balance_chance = self.BALANCE_CHANCE
         self._schedule()
 
-    def _load_texts(self):
-        self._texts = load_quote_file(self.text_file, self.config.get("self_talk_texts") or [])
-        return self._texts
+    # ---------- 语录分类 ----------
+    def _classify(self, text):
+        text = str(text).strip()
+        m = re.match(r"^\[(\w+)\]\s*(.*)$", text)
+        forced = m.group(1).lower() if m else None
+        body = m.group(2) if m else text
+        if forced == "time":
+            forced = self._time_subtag(body) or "random"
+        tag = forced
+        if tag is None:
+            for t, kws in self.KEYWORDS.items():
+                if any(k in body for k in kws):
+                    tag = t
+                    break
+        if tag is None or (forced is None and tag == "time"):
+            # 无时段细分关键词的 time 类归入随机池
+            tag = "random"
+        return tag, body
 
+    def _time_subtag(self, body):
+        for kws, sub in self.TIME_SUBTAG:
+            if any(k in body for k in kws):
+                return sub
+        return None
+
+    def _load_texts(self):
+        texts = load_quote_file(self.text_file, self.config.get("self_talk_texts") or [])
+        self._pools = {}
+        for t in texts:
+            tag, body = self._classify(t)
+            self._pools.setdefault(tag, []).append(body)
+        return len(texts)
+
+    def _pick(self, tag):
+        pool = self._pools.get(tag) or self._pools.get("random") or []
+        return random.choice(pool) if pool else None
+
+    def _emit_tag(self, tag):
+        """统一出口：总开关拦截 + 按类别取语录 + 发信号（去前缀后的正文）。"""
+        if not bool(self.config.get("self_talk_enabled", True)):
+            return False
+        text = self._pick(tag)
+        if not text:
+            return False
+        self.talk.emit(text)
+        return True
+
+    # ---------- 触发方式 ----------
+    def _fire_random(self):
+        self._emit_tag("random")
+        self._schedule()
+
+    def _check_context(self):
+        now = self._now_fn()
+        self._check_time_windows(now)
+        self._check_health()
+        self._check_attention()
+
+    def _check_time_windows(self, now):
+        today = now.date().isoformat()
+        weekend = now.weekday() >= 5
+        rules = []
+        for h1, h2, sub in self.TIME_WINDOWS:
+            if h1 <= now.hour < h2:
+                rules.append(sub)
+        if weekend and self.WEEKEND_WINDOW[0] <= now.hour < self.WEEKEND_WINDOW[1]:
+            rules.append("time_weekend")
+        for rule in rules:
+            if self._fired_rules.get(rule) == today:
+                continue
+            if self._emit_tag(rule):
+                self._fired_rules[rule] = today
+
+    def _check_health(self):
+        mono = self._mono_fn()
+        idle = self._idle_fn()
+        if idle >= self.IDLE_MINUTES * 60 and mono - self._last_health >= self.IDLE_MINUTES * 60:
+            if self._emit_tag("health"):
+                self._last_health = mono
+
+    def _check_attention(self):
+        mono = self._mono_fn()
+        if (mono - self._last_pat >= self.ATTENTION_MINUTES * 60
+                and mono - self._last_attention >= self.ATTENTION_MINUTES * 60):
+            if self._emit_tag("attention"):
+                self._last_attention = mono
+
+    def on_balance_change(self):
+        """余额增减事件后调用：概率触发一条余额类语录（有冷却）。"""
+        mono = self._mono_fn()
+        if (mono - self._last_balance_quote >= self.BALANCE_THROTTLE_S
+                and random.random() < self.balance_chance):
+            if self._emit_tag("balance"):
+                self._last_balance_quote = mono
+
+    def note_interaction(self):
+        """摸头/单击互动发生时调用：刷新求关注计时。"""
+        self._last_pat = self._mono_fn()
+
+    # ---------- 开关与调度 ----------
     def _schedule(self):
-        # 关闭开关、文本库为空、间隔 0 都要显式停表：
-        # 旧实现提前 return 不停 timer，设置里关掉后桌宠仍按旧间隔说话
+        # 关闭开关、文本库为空、间隔 0 都要显式停表（random 与情境检查一起停）
         enabled = bool(self.config.get("self_talk_enabled", True))
         val = self.config.get("self_talk_interval", 300)
         try:
             sec = int(val if val is not None else 300)
         except (TypeError, ValueError):
             sec = 300
-        if not enabled or sec <= 0 or not self._load_texts():
+        if not enabled or not self._load_texts():
             self._timer.stop()
+            self._context_timer.stop()
             return
-        self._timer.start(sec * 1000)
-
-    def _fire(self):
-        if self._texts:
-            self.talk.emit(random.choice(self._texts))
-        self._schedule()
+        if sec > 0:
+            self._timer.start(sec * 1000)
+        else:
+            self._timer.stop()  # 随机闲聊可单独设 0 关闭，情境触发不受影响
+        if not self._context_timer.isActive():
+            self._context_timer.start(60000)
 
 
 class DesktopPet:
@@ -179,6 +351,7 @@ class DesktopPet:
         w.quitRequested.connect(QApplication.instance().quit)
         w.autoStartRequested.connect(self._on_auto_start)
         w.petHeadRequested.connect(self._show_pet_head)
+        w.petHeadRequested.connect(lambda: self.talk.note_interaction())
         w.moved.connect(self._on_moved)
         m = self.monitor
         m.balanceUpdated.connect(w.set_balance_text)
@@ -187,6 +360,8 @@ class DesktopPet:
         petlog.log("wire: selftest emit returned")
         m.balanceUp.connect(lambda t: w.show_float_text(t, "#22C55E"))
         m.balanceDown.connect(lambda t: w.show_float_text(t, "#EF4444"))
+        m.balanceUp.connect(lambda t: self.talk.on_balance_change())
+        m.balanceDown.connect(lambda t: self.talk.on_balance_change())
         m.fetchError.connect(self._on_fetch_error)
 
         s = self.schedule

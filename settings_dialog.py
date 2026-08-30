@@ -112,13 +112,13 @@ class SettingsDialog(QDialog):
         self.fill_edit, self.fill_btn = self._color_row(form, "云线填充色", self.config.get("balloon_fill", "#FFFFFF"))
         self.outline_edit, self.outline_btn = self._color_row(form, "云线描边色", self.config.get("balloon_outline", "#1E3A8A"))
 
-        form.addRow(QLabel("自言自语（挂机闲聊通知）"))
+        form.addRow(QLabel("自言自语（随机闲聊 + 情境触发：时点/健康/余额/求关注）"))
         self.talk_check = QCheckBox("启用")
         self.talk_check.setChecked(bool(self.config.get("self_talk_enabled", True)))
-        form.addRow("自言自语通知", self.talk_check)
+        form.addRow("自言自语总开关", self.talk_check)
         self.talk_edit = QPlainTextEdit()
         self.talk_edit.setPlainText("\n".join(self._load_talk_texts()))
-        self.talk_edit.setPlaceholderText("每行一条，桌宠会随机自言自语")
+        self.talk_edit.setPlaceholderText("每行一条；自动按内容分类触发（时点/健康/求关注/余额/随机），也可用 [time] [health] [attention] [balance] [random] 前缀强制指定")
         self.talk_edit.setFixedHeight(110)
         form.addRow("文本库（每行一条）", self.talk_edit)
         talk_file = self.config.get("self_talk_file") or ""
@@ -130,7 +130,7 @@ class SettingsDialog(QDialog):
         self.talk_interval.setRange(0, 1800)
         self.talk_interval.setValue(int(self.config.get("self_talk_interval", 300)))
         self.talk_interval.setSuffix(" 秒")
-        form.addRow("间隔（0~1800 秒）", self.talk_interval)
+        form.addRow("随机闲聊间隔（0~1800 秒，0 = 仅情境触发）", self.talk_interval)
         return w
 
     def _load_talk_texts(self):
