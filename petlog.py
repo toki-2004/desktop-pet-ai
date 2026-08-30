@@ -5,7 +5,12 @@ import sys
 import time
 import threading
 
-_DIR = os.path.dirname(os.path.abspath(__file__))
+# 冻结（onedir/onefile）时日志写到 exe 同目录，与 config.json 一致，便于排查；
+# 源码运行时写到项目目录。
+if getattr(sys, "frozen", False):
+    _DIR = os.path.dirname(sys.executable)
+else:
+    _DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(_DIR, "pet_debug.log")
 _MAX_BYTES = 512 * 1024
 _lock = threading.Lock()

@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 *.spec
+/icon.ico
 
 # 交接文档仅本地保留，不入库
 HANDOVER.md

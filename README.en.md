@@ -76,7 +76,9 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
 
 ## Download
 
-The latest version can be downloaded from the [Releases](https://github.com/toki-2004/desktop-pet/releases) page.
+The latest version can be downloaded from the [Releases](https://github.com/toki-2004/desktop-pet/releases) page
+(zip package, extract and run: keep `DesktopPet.exe` and the `_internal` folder in the same directory,
+do not move the exe alone).
 
 ## Requirements
 
@@ -162,15 +164,20 @@ python tests/offscreen_smoke.py
 
 ## Packaging (Optional)
 
-For distributing to end users, package with PyInstaller:
+For distributing to end users, package with PyInstaller **on-dir mode** (faster startup, no per-launch
+extraction; config and logs land directly next to the exe for easier troubleshooting):
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" --add-data "icon.png;." main.py
+python -m PyInstaller --noconfirm --clean DesktopPet.spec
 ```
 
-Packaging notes: `config.json` is not packaged (it contains API Keys) and is generated automatically in the exe's directory on first run; the tray icon `icon.png` must be bundled too (see command);
-the bundled assets and the two default quote libraries (`assets/*_quotes.json`) are extracted from the package directory and can be customized.
+The output is `dist/DesktopPet/` (`DesktopPet.exe` + `_internal/`); compress the **whole directory** into a zip
+for distribution. After extraction, keep the exe and `_internal` in the same directory.
+
+Packaging notes: `config.json` (contains API Keys) is not packaged and is generated automatically in the exe's
+directory on first run; `pet_debug.log` also lands next to the exe; the bundled assets and the two default quote
+libraries (`assets/*_quotes.json`) are unpacked to `_internal/assets` and can be customized.
 
 ## Related Projects
 

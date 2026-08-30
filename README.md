@@ -70,7 +70,9 @@
 
 ## 下载
 
-最新版本可在 [Releases](https://github.com/toki-2004/desktop-pet/releases) 页面下载。
+最新版本可在 [Releases](https://github.com/toki-2004/desktop-pet/releases) 页面下载
+（zip 压缩包，解压即用：保持 `DesktopPet.exe` 与 `_internal` 文件夹在同一目录，
+不要单独移动 exe）。
 
 ## 环境要求
 
@@ -155,15 +157,20 @@ python tests/offscreen_smoke.py
 
 ## 打包（可选）
 
-面向用户分发时可用 PyInstaller 打包：
+面向用户分发时用 PyInstaller **单目录模式**打包（启动快、免每次解压，
+配置与日志直接落在 exe 目录，便于排查）：
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --name DesktopPet --add-data "assets;assets" --add-data "icon.png;." main.py
+python -m PyInstaller --noconfirm --clean DesktopPet.spec
 ```
 
-打包说明：`config.json` 不打包（含 API Key），首次运行会在 exe 同目录自动生成；托盘图标 `icon.png` 需一并打包（见命令）；
-自带素材与两个默认语录库（`assets/*_quotes.json`）从打包目录解出，可自定义。
+产物位于 `dist/DesktopPet/`（`DesktopPet.exe` + `_internal/`），将**整个目录**压缩为
+zip 后分发；解压后请保持 exe 与 `_internal` 在同一目录，不要单独移动 exe。
+
+打包说明：`config.json`（含 API Key）不打包，首次运行在 exe 同目录自动生成；
+`pet_debug.log` 日志同样在 exe 目录；自带素材与两个默认语录库
+（`assets/*_quotes.json`）解包到 `_internal/assets`，可自定义。
 
 ## 相关项目
 
