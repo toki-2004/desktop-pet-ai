@@ -193,6 +193,17 @@ for _ in range(30):
 check("retry after watchdog succeeds", got and balances8[-1].startswith("¥"), balances8)
 check("polling released after success", m2._polling is False and m2._timeouts == 0)
 
+# 9. 完整应用级回归：DesktopPet 装配后余额标签必须脱离占位
+# （2026-08-30 事故：托盘编辑把 _wire 拦腰截断，余额/时段/语录信号整体失联，
+#   组件级测试抓不到装配错误——必须构造完整 DesktopPet 验证一次）
+import main as main_mod2  # noqa: E402
+pet2 = main_mod2.DesktopPet()
+app.processEvents()
+label2 = pet2.window.balance_label.text()
+check("app-level: balance label left placeholder", label2 != "余额…", label2)
+check("app-level: label shows selftest or real balance",
+      label2 == "selftest" or label2.startswith("¥"), label2)
+
 # 5. 配色渲染：高峰红系/空闲绿系，纯色边框 + 半透明底纹
 def render_colors(state):
     sl.set_state(state)
