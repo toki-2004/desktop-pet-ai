@@ -14,7 +14,7 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt5.QtCore import QCoreApplication, QEventLoop, QTimer  # noqa: E402
+from PyQt5.QtCore import QCoreApplication, QEventLoop, QTimer, QEvent, QPointF, Qt  # noqa: E402
 from PyQt5.QtGui import QImage  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
@@ -61,6 +61,8 @@ def check(name, cond, detail=""):
         print("  FAIL", name, detail)
 
 pet = PetWindow(cfg, default_image=normal_png)
+quotes = []
+pet.petHeadRequested.connect(lambda: quotes.append(1))
 
 # 1. 单击播放：movie 启动
 ok = pet._play_interact_once()
@@ -107,6 +109,52 @@ check("status text flips with state", (sl.text() == "高峰时段") != is_peak()
 import main as main_mod  # noqa: E402
 for sym in ("QIcon", "QSystemTrayIcon", "QMenu"):
     check("main module has " + sym, hasattr(main_mod, sym))
+
+# 7. 位置与拖动/单击行为（真实鼠标事件模拟）
+from PyQt5.QtGui import QMouseEvent  # noqa: E402
+
+
+def mouse_event(etype, gp, buttons=Qt.NoButton):
+    if isinstance(gp, QPointF):
+        gp = gp.toPoint()
+    lp = pet.mapFromGlobal(gp)
+    return QMouseEvent(etype, QPointF(lp), QPointF(gp), Qt.LeftButton, buttons, Qt.NoModifier)
+
+
+def click_at(gp):
+    QApplication.sendEvent(pet, mouse_event(QEvent.MouseButtonPress, gp, Qt.LeftButton))
+    QApplication.sendEvent(pet, mouse_event(QEvent.MouseButtonRelease, gp))
+
+
+pet._place_status()
+check("status label sits right below pet", pet.status_label.y() == pet.y() + pet.height(),
+      (pet.status_label.x(), pet.status_label.y(), pet.x(), pet.y(), pet.height()))
+center = pet.geometry().center()
+
+before = len(quotes)
+click_at(center)
+app.processEvents()
+check("click (release without move) plays movie", pet._interact_movie is not None)
+check("click emits exactly one head quote", len(quotes) == before + 1, len(quotes))
+loop4 = QEventLoop()
+QTimer.singleShot(1800, loop4.quit)  # 3 帧 x 30ms 播完
+loop4.exec_()
+check("movie finished after click", pet._interact_movie is None)
+
+drag_start = pet.geometry().center()
+pos_before = (pet.x(), pet.y())
+QApplication.sendEvent(pet, mouse_event(QEvent.MouseButtonPress, drag_start, Qt.LeftButton))
+for dx in (10, 25, 45, 70):
+    gp = drag_start + QPointF(dx, dx * 0.6)
+    QApplication.sendEvent(pet, mouse_event(QEvent.MouseMove, gp, Qt.LeftButton))
+    app.processEvents()
+QApplication.sendEvent(pet, mouse_event(QEvent.MouseButtonRelease, drag_start + QPointF(70, 42)))
+app.processEvents()
+check("drag does NOT play movie", pet._interact_movie is None)
+check("drag does NOT emit quote", len(quotes) == before + 1, len(quotes))
+check("drag actually moved the pet", (pet.x(), pet.y()) != pos_before)
+pet._play_interact_once()  # 清理：结束残留动画
+app.processEvents()
 
 # 5. 配色渲染：高峰红系/空闲绿系，纯色边框 + 半透明底纹
 def render_colors(state):

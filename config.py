@@ -33,8 +33,6 @@ DEFAULT_CONFIG = {
     "self_talk_interval": 300,
     "self_talk_file": "",
     "pet_head_enabled": True,
-    "pet_head_interval": 10,
-    "pet_head_long_press_ms": 600,
     "pet_head_texts": [
         "嘿嘿，主人摸得我好舒服～",
         "再摸摸！还要！",

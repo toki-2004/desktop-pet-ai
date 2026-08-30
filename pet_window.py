@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """桌宠主窗口：透明置顶、可拖动、滚轮缩放、余额常态显示、浮动文字动画、
-左键交互（单击播放一遍互动 GIF，连点从头重放；长按出摸头语录）、时段常态显示。"""
+左键交互（单击播放一遍互动 GIF 并换一条摸头语录，拖动不触发；连点从头重放）、
+时段常态显示（桌宠正下部）。"""
 import os
 import sys
 import ctypes
@@ -57,9 +58,6 @@ class BalanceLabel(QLabel):
         self.config = config
         self.pet_window = parent
         self._drag_pos = None
-        self._head_press_timer = QTimer(self)
-        self._head_press_timer.setSingleShot(True)
-        self._head_press_timer.timeout.connect(self._on_head_long_press)
 
     def set_top_flag(self, on):
         """同步"显示在最上层"开关：与桌宠/通知/浮动字保持一致。"""
@@ -101,11 +99,6 @@ class BalanceLabel(QLabel):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            if self.pet_window is not None and self.pet_window.config.get("pet_head_enabled", True):
-                press_ms = max(300, int(self.pet_window.config.get("pet_head_long_press_ms", 600) or 600))
-                self._head_press_timer.start(press_ms)
-            else:
-                self._head_press_timer.stop()
         event.accept()
 
     def mouseMoveEvent(self, event):
@@ -121,7 +114,6 @@ class BalanceLabel(QLabel):
 
     def mouseReleaseEvent(self, event):
         if self._drag_pos is not None:
-            self._head_press_timer.stop()
             if self.pet_window is not None:
                 self.config.set("balance_offset", [
                     self.x() - self.pet_window.x(),
@@ -129,11 +121,6 @@ class BalanceLabel(QLabel):
                 ])
             self._drag_pos = None
         event.accept()
-
-    def _on_head_long_press(self):
-        """长按余额文本区域（未拖动）时也转发摸头语录。"""
-        if self._drag_pos is not None and self.pet_window is not None:
-            self.pet_window.petHeadRequested.emit()
 
 
 class StatusLabel(QLabel):
@@ -224,12 +211,8 @@ class PetWindow(QWidget):
         self._scale = float(self.config.get("pet_scale", 1.0) or 1.0)
         self._interact_movie = None
         self._interact_total = 0
-        self._pressed = False
-        self._press_timer = QTimer(self)
-        self._press_timer.setSingleShot(True)
-        self._press_timer.timeout.connect(self._on_long_press)
-        self._head_timer = QTimer(self)
-        self._head_timer.timeout.connect(self._on_head_tick)
+        self._press_global = None   # 按下时的全局位置：用于区分拖动与单击
+        self._press_moved = False
         self._scale_save_timer = QTimer(self)
         self._scale_save_timer.setSingleShot(True)
         self._scale_save_timer.setInterval(800)
@@ -238,6 +221,7 @@ class PetWindow(QWidget):
 
         self.pet_label = QLabel(self)
         self.balance_label = BalanceLabel(config, self)
+        self.balance_label.setText("余额…")  # 首次拉取前的占位，避免空白圆角框
         self.balance_label.hide()
         self.status_label = StatusLabel(config, self)
 
@@ -369,49 +353,33 @@ class PetWindow(QWidget):
         self.balance_label.move(self.x() + dx, self.y() + dy)
 
     def _place_status(self):
-        # 时段状态挂在桌宠左上角（余额文本在右上角），随桌宠移动。
+        # 时段状态放在桌宠正下部（用户指定）：文本框上缘紧贴桌宠窗口下缘，水平居中。
         # StatusLabel 构造期间会回调到这里，此时 status_label 尚未挂到 self 上。
         label = getattr(self, "status_label", None)
         if label is None:
             return
-        label.move(self.x() + 6, self.y() + 6)
+        x = self.x() + max(0, (self.width() - label.width()) // 2)
+        label.move(x, self.y() + self.height())
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            self._pressed = True
-            # 单击即从头播放一遍互动 GIF；连点会终止上一次播放再从头重放
-            self._play_interact_once()
-            if self.config.get("pet_head_enabled", True):
-                press_ms = max(300, int(self.config.get("pet_head_long_press_ms", 600) or 600))
-                self._press_timer.start(press_ms)
-            else:
-                self._press_timer.stop()
+            self._press_global = event.globalPos()
+            self._press_moved = False
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._pressed = False
-            self._press_timer.stop()
-            self._head_timer.stop()
             if self._drag_pos is not None:
+                # 单击（按下后未拖动）= 播放一遍互动 GIF + 换一条摸头语录；拖动不触发
+                if not self._press_moved and self.config.get("pet_head_enabled", True):
+                    self._play_interact_once()
+                    self.petHeadRequested.emit()
                 # 位置在拖动结束时落盘一次：moveEvent 每像素写盘的旧做法会高频重写 config.json
                 self.config.set("pet_pos", [self.x(), self.y()])
+        self._press_moved = False
+        self._press_global = None
         self._drag_pos = None
-
-    def _on_long_press(self):
-        """长按判定通过：触发一条摸头语录，按住期间按间隔循环。"""
-        if not self._pressed:
-            return
-        self.petHeadRequested.emit()
-        interval = max(1, int(self.config.get("pet_head_interval", 10) or 10))
-        self._head_timer.start(interval * 1000)
-
-    def _on_head_tick(self):
-        if self._pressed:
-            self.petHeadRequested.emit()
-        else:
-            self._head_timer.stop()
 
     def _play_interact_once(self):
         """左键单击：互动 GIF 从头播放一遍，播完自动恢复常态图。
@@ -519,7 +487,10 @@ class PetWindow(QWidget):
     # ---------- 拖动 ----------
     def mouseMoveEvent(self, event):
         if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
-            # 拖动桌宠也算长按：不取消语录，按住超过判定时间即触发
+            # 移动超过阈值判定为拖动：本次按下不再触发单击动画/语录
+            if self._press_global is not None and \
+               (event.globalPos() - self._press_global).manhattanLength() > 6:
+                self._press_moved = True
             screen = QApplication.screenAt(event.globalPos())
             avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
             pos = event.globalPos() - self._drag_pos
