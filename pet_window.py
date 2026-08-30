@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """桌宠主窗口：透明置顶、可拖动、滚轮缩放、余额常态显示、浮动文字动画、
-左键交互（按下即播放，循环，松开恢复，如摸头）。"""
+左键交互（单击播放一遍互动 GIF，连点从头重放；长按出摸头语录）、时段常态显示。"""
 import os
 import sys
 import ctypes
 
 from PyQt5.QtCore import Qt, QPoint, QSize, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
-from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen
+from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageReader
 from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication
+
+from scheduler import is_peak
 
 MAX_PET_SIZE = 240
 MIN_PET_SIZE = 30
@@ -134,6 +136,61 @@ class BalanceLabel(QLabel):
             self.pet_window.petHeadRequested.emit()
 
 
+class StatusLabel(QLabel):
+    """时段状态标签（独立置顶小窗口）：常态显示当前是高峰还是空闲时段。
+
+    展示层级与余额文本保持一致——同样跟随 always_on_top 置顶开关
+    （_apply_top_flag 里一起 set_top_flag），挂在桌宠左上角。
+    """
+
+    def __init__(self, config, parent=None):
+        super().__init__(
+            None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
+        self.config = config
+        self.pet_window = parent
+        self._peak = None
+        self.set_state(is_peak())
+
+    def set_top_flag(self, on):
+        set_topmost_flag(self, on)
+
+    def set_state(self, peak):
+        if peak == self._peak and self.text():
+            return
+        self._peak = bool(peak)
+        peak_t = self.config.get("peak_status_text", "高峰时段") or "高峰时段"
+        idle_t = self.config.get("idle_status_text", "空闲时段") or "空闲时段"
+        self.setText(peak_t if peak else idle_t)
+        self._apply_style()
+
+    def _apply_style(self):
+        fs = int(self.config.get("balance_font_size", 14) or 14)
+        font = self.font()
+        font.setPointSize(max(9, fs - 2))
+        font.setBold(True)
+        self.setFont(font)
+        self.resize(max(24, self.sizeHint().width() + 16),
+                    max(18, self.sizeHint().height() + 6))
+        self.update()
+        if self.pet_window is not None:
+            self.pet_window._place_status()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        peak = bool(self._peak)
+        # 高峰=暖橙，空闲=绿色，一眼区分
+        p.setPen(QPen(QColor("#E28A2B" if peak else "#27AE60"), 1))
+        p.setBrush(QBrush(QColor("#FFF4E5" if peak else "#E8F7EE")))
+        p.drawRoundedRect(rect, 8, 8)
+        p.setPen(QColor("#9A5B10" if peak else "#1E7B4F"))
+        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
+
+
 class PetWindow(QWidget):
     toggleBalanceRequested = pyqtSignal(bool)
     bindAccountRequested = pyqtSignal()
@@ -177,6 +234,7 @@ class PetWindow(QWidget):
         self.pet_label = QLabel(self)
         self.balance_label = BalanceLabel(config, self)
         self.balance_label.hide()
+        self.status_label = StatusLabel(config, self)
 
         self.apply_config()
 
@@ -192,12 +250,17 @@ class PetWindow(QWidget):
         self.balance_label.setVisible(bool(self.config.get("show_balance", True)))
         self._place_balance()
         self._apply_top_flag()
+        # 时段状态常态显示：文案可被 config 自定义，这里同步刷新并随窗口显示
+        self.status_label.set_state(is_peak())
+        self._place_status()
+        self.status_label.show()
 
     def _apply_top_flag(self):
-        """同步置顶开关：桌宠、余额文本、已有浮动字一起切换。"""
+        """同步置顶开关：桌宠、余额文本、时段状态、已有浮动字一起切换。"""
         on = bool(self.config.get("always_on_top", True))
         set_topmost_flag(self, on)
         self.balance_label.set_top_flag(on)
+        self.status_label.set_top_flag(on)
         for lab in list(self._floats):
             set_topmost_flag(lab, on)
 
@@ -299,6 +362,14 @@ class PetWindow(QWidget):
             dx = self.width() - self.balance_label.width() - 6
             dy = 6
         self.balance_label.move(self.x() + dx, self.y() + dy)
+
+    def _place_status(self):
+        # 时段状态挂在桌宠左上角（余额文本在右上角），随桌宠移动。
+        # StatusLabel 构造期间会回调到这里，此时 status_label 尚未挂到 self 上。
+        label = getattr(self, "status_label", None)
+        if label is None:
+            return
+        label.move(self.x() + 6, self.y() + 6)
 
     # ---------- 左键交互（按下即播放，循环，松开恢复） ----------
     def mousePressEvent(self, event):
@@ -428,6 +499,7 @@ class PetWindow(QWidget):
             self.moved.emit(self.pos())
         if self.balance_label.isVisible():
             self._place_balance()
+        self._place_status()
         super().moveEvent(event)
 
     # ---------- 右键菜单 ----------

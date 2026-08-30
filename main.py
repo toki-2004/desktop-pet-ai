@@ -188,6 +188,11 @@ class DesktopPet:
             self.config.get("peak_balloon_text", "高峰时段开始啦……"), persistent=True))
         s.idleStarted.connect(lambda: self._show_balloon(
             self.config.get("idle_balloon_text", "空闲时段开始啦！"), persistent=True))
+        # 时段常态显示：启动即定初始状态，切换时同步刷新（置顶层级同余额文本）
+        from scheduler import is_peak
+        w.status_label.set_state(is_peak())
+        s.peakStarted.connect(lambda: w.status_label.set_state(True))
+        s.idleStarted.connect(lambda: w.status_label.set_state(False))
         self.talk.talk.connect(self._show_balloon)
 
     def _restore_position(self):

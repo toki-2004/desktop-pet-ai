@@ -10,6 +10,8 @@ DEFAULT_CONFIG = {
     "balloon_text": "主人，有新消息啦！",
     "peak_balloon_text": "高峰时段开始啦……",
     "idle_balloon_text": "空闲时段开始啦！",
+    "peak_status_text": "高峰时段",
+    "idle_status_text": "空闲时段",
     "pet_image": "",
     "pet_pos": [],
     "pet_scale": 1.0,
