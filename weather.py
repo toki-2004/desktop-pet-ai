@@ -103,15 +103,16 @@ _real_getaddrinfo = socket.getaddrinfo
 
 
 def _fast_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    """优先用隧道 DNS 解析；失败回落系统解析（慢但可用）。"""
+    """优先用隧道 DNS 解析；失败直接报错（系统解析慢达 10-20s，会拖住进程退出）。"""
     if isinstance(host, str) and host:
-        try:
+        parts = host.split(".")
+        is_ip = len(parts) == 4 and all(p.isdigit() for p in parts)
+        if not is_ip:
             ips = fast_resolve(host)
-        except Exception:
-            ips = []
-        if ips:
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, int(port)))
-                    for ip in ips]
+            if ips:
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, int(port)))
+                        for ip in ips]
+            raise socket.gaierror("fast DNS failed: %s" % host)
     return _real_getaddrinfo(host, port, family, type, proto, flags)
 
 

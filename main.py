@@ -347,7 +347,8 @@ class DesktopPet:
             self.config.set("pet_interact_image", DEFAULT_INTERACT)
         self.window.show()
         self.monitor.start()
-        self.weather.start()
+        if not os.environ.get("PET_SMOKE"):
+            self.weather.start()  # 冒烟模式不访问网络（天气拉取放后台线程，会拖慢退出）
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
     def _ensure_quote_files(self):
