@@ -118,21 +118,22 @@ class SelfTalkMonitor(QObject):
         "attention": ("摸摸", "陪聊", "想我", "点点我", "无聊", "聊聊天", "陪我"),
         "game": ("游戏", "操作", "胜利"),
     }
-    TIME_SUBTAG = (  # time 大类内部的时段细分（按内容关键词）
-        (("早安", "清晨"), "time_morning"),
-        (("午饭",), "time_lunch"),
-        (("下午茶",), "time_tea"),
-        (("天黑", "夕阳", "傍晚", "晚饭"), "time_evening"),
-        (("夜深", "深夜", "零点", "早点睡"), "time_night"),
-        (("周末",), "time_weekend"),
+    TIME_SUBTAG = (  # time 大类内部的时段细分（按内容关键词自动归类用）
+        (("早安", "清晨"), "morning"),
+        (("中午", "午饭"), "noon"),
+        (("下午", "下午茶"), "afternoon"),
+        (("天黑", "夕阳", "傍晚", "晚饭"), "evening"),
+        (("夜深", "深夜", "零点", "早点睡"), "midnight"),
+        (("周末",), "weekend"),
     )
-    TIME_WINDOWS = [  # (起始时, 结束时, time 子标签)——每天每段至多触发一次
-        (6, 10, "time_morning"),
-        (11, 13, "time_lunch"),
-        (14, 16, "time_tea"),
-        (18, 20, "time_evening"),
-        (23, 24, "time_night"),
-        (0, 5, "time_night"),
+    TIME_SUBTAGS = {"morning", "noon", "afternoon", "evening", "midnight", "weekend"}
+    TIME_WINDOWS = [  # (起始时, 结束时, 池后缀)——全天连续覆盖，每段每天至多触发一次
+        (5, 11, "time_morning"),
+        (11, 14, "time_noon"),
+        (14, 18, "time_afternoon"),
+        (18, 23, "time_evening"),
+        (23, 24, "time_midnight"),
+        (0, 5, "time_midnight"),
     ]
     WEEKEND_WINDOW = (9, 21)       # 周末白天
     IDLE_MINUTES = 45              # 闲置多久触发健康提醒
@@ -173,15 +174,17 @@ class SelfTalkMonitor(QObject):
         m = re.match(r"^\[(\w+)\]\s*(.*)$", text)
         forced = m.group(1).lower() if m else None
         body = m.group(2) if m else text
-        if forced == "time":
-            forced = self._time_subtag(body) or "random"
         if forced is not None:
+            if forced == "time":  # 兼容旧写法：按内容细分到具体时段
+                forced = self._time_subtag(body) or "random"
+            if forced in self.TIME_SUBTAGS:
+                return "time_" + forced, body
             return forced, body
         for t, kws in self.KEYWORDS.items():
             if any(k in body for k in kws):
                 if t == "time":
                     sub = self._time_subtag(body)
-                    return (sub, body) if sub else ("random", body)
+                    return ("time_" + sub, body) if sub else ("random", body)
                 return t, body
         return "random", body
 

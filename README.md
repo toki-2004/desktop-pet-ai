@@ -28,7 +28,9 @@
 8. **自言自语（情境触发）**：语录按内容自动分类，用不同方式触发——时点问候
    （早安/午饭/下午茶/夜晚/周末，各时段每天一次）、健康提醒（键鼠闲置 45 分钟）、
    求关注（90 分钟没有互动）、余额变动（概率触发）、随机闲聊（按设置间隔）；
-   也可在语录前加 [time] [health] [attention] [balance] [random] 前缀强制指定。
+   时段类语录可用 [morning] [noon] [afternoon] [evening] [midnight] [weekend]
+   前缀精确指定（也可用 [time] 兼容写法按内容自动细分）；其他触发用
+   [health] [attention] [balance] [random] 前缀强制指定。
    文本库、开关、间隔均可在设置中调整。
 9. **语录库 JSON 化**：摸头与自言自语语录均改为独立的 JSON 文件存储
    （`pet_head_quotes.json` / `self_talk_quotes.json`），首次运行自动生成预置默认

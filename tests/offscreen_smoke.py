@@ -248,48 +248,55 @@ for _ in range(30):
 check("retry after watchdog succeeds", got and balances8[-1].startswith("¥"), balances8)
 check("polling released after success", m2._polling is False and m2._timeouts == 0)
 
-# 10. 自言自语情境触发：分类 / 时点 / 健康 / 求关注 / 余额变动 / 时段错配回归
+# 10. 自言自语情境触发：显式时段标签 / 分类 / 健康 / 求关注 / 余额变动
 import json as _json  # noqa: E402
 from datetime import datetime as _dt  # noqa: E402
 
 talk10 = os.path.join(tmp, "talk10.json")
 _json.dump([
-    "[time] 早安主人，新的一天也要加油哦～",
-    "下午茶时间～主人喝口水吧。",
-    "夜深了……主人早点睡嘛。",
+    "[morning] 早安主人，新的一天也要加油哦～",
+    "[afternoon] 下午茶时间～主人喝口水吧。",
+    "[midnight] 夜深了……主人早点睡嘛。",
     "记得喝水哦，主人。",
     "主人，摸摸我嘛～",
     "余额稳稳的，安全感满满～",
     "普通随机话语。",
+    "[time] 周末愉快，今天有什么安排吗？",   # 旧写法兼容：按内容细分到 weekend
 ], open(talk10, "w", encoding="utf-8"), ensure_ascii=False)
 t10 = main_mod.SelfTalkMonitor(cfg2, talk10)
 said = []
 t10.talk.connect(said.append)
 
-# 分类回归：夜深了必须进 time_night 池，且绝不进随机池
-check("classify time_morning", any("早安" in x for x in t10._pools.get("time_morning", [])))
-check("classify time_tea", any("下午茶" in x for x in t10._pools.get("time_tea", [])))
-check("classify time_night", any("夜深了" in x for x in t10._pools.get("time_night", [])))
+# 分类：显式时段标签 / [time] 兼容 / 其他类别
+check("classify [morning]", any("早安" in x for x in t10._pools.get("time_morning", [])))
+check("classify [afternoon]", any("下午茶" in x for x in t10._pools.get("time_afternoon", [])))
+check("classify [midnight]", any("夜深了" in x for x in t10._pools.get("time_midnight", [])))
+check("classify legacy [time] -> weekend", any("周末愉快" in x for x in t10._pools.get("time_weekend", [])))
 check("classify health", any("喝水" in x for x in t10._pools.get("health", [])))
 check("classify attention", any("摸摸" in x for x in t10._pools.get("attention", [])))
 check("classify balance", any("余额" in x for x in t10._pools.get("balance", [])))
 check("classify random", "普通随机话语。" in t10._pools.get("random", []))
-check("REGRESSION: night quote NOT in random pool",
-      all("夜深了" not in x for x in t10._pools.get("random", [])))
 
-# 下午（14 点）只触发下午茶窗口：绝不弹"夜深了"
+# 时段窗口：清晨 8 点触发 morning；下午 14 点触发 afternoon；深夜 23:30 触发 midnight
+t10._now_fn = lambda: _dt(2026, 8, 30, 8, 0)
+t10._check_context()
+check("morning window fires", any("早安" in x for x in said), said)
 t10._now_fn = lambda: _dt(2026, 8, 30, 14, 0)
 t10._check_context()
-check("afternoon fires tea quote", any("下午茶" in x for x in said), said)
-check("REGRESSION: afternoon never says 夜深了", not any("夜深了" in x for x in said), said)
-count_after_tea = len(said)
-t10._check_context()
-check("tea rule fires once per day", len(said) == count_after_tea)
-
-# 深夜（23 点）触发夜深语录
+check("afternoon window fires", any("下午茶" in x for x in said), said)
 t10._now_fn = lambda: _dt(2026, 8, 30, 23, 30)
 t10._check_context()
-check("night window fires 夜深了", any("夜深了" in x for x in said), said)
+check("midnight window fires", any("夜深了" in x for x in said), said)
+count_then = len(said)
+t10._now_fn = lambda: _dt(2026, 8, 30, 23, 40)
+t10._check_context()
+check("each window fires once per day", len(said) == count_then)
+
+# 正午 12 点：time_noon 池为空 → 宁可沉默（时段错配回归）
+said_before_noon = len(said)
+t10._now_fn = lambda: _dt(2026, 8, 30, 12, 0)
+t10._check_context()
+check("REGRESSION: empty noon pool stays silent", len(said) == said_before_noon, said)
 
 # 健康 / 求关注 / 余额变动
 t10._mono_fn = lambda: 10_000_000.0

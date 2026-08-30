@@ -32,7 +32,9 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
 8. **Self-talk (context-aware triggers)**: quotes are auto-classified by content and delivered through different triggers -
    time-of-day greetings (morning/lunch/tea/evening/weekend, once per day each), health reminders (45 minutes of
    keyboard/mouse idle), attention seeking (90 minutes without interaction), balance changes (probabilistic), and random
-   chatter (configurable interval); a [time] [health] [attention] [balance] [random] prefix on a quote forces its trigger.
+   chatter (configurable interval); period quotes accept [morning] [noon] [afternoon] [evening] [midnight] [weekend]
+   prefixes for exact windows (or the legacy [time] prefix to auto-subdivide by
+   content); other triggers accept [health] [attention] [balance] [random] prefixes.
    The text library, toggle, and interval are all adjustable in settings.
 9. **JSON-based quote libraries**: head-pat and self-talk quotes are now stored in separate JSON files
    (`pet_head_quotes.json` / `self_talk_quotes.json`); preset default libraries are generated automatically on first run;

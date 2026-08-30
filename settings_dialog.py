@@ -118,7 +118,7 @@ class SettingsDialog(QDialog):
         form.addRow("自言自语总开关", self.talk_check)
         self.talk_edit = QPlainTextEdit()
         self.talk_edit.setPlainText("\n".join(self._load_talk_texts()))
-        self.talk_edit.setPlaceholderText("每行一条；自动按内容分类触发（时点/健康/求关注/余额/随机），也可用 [time] [health] [attention] [balance] [random] 前缀强制指定")
+        self.talk_edit.setPlaceholderText("每行一条；自动按内容分类触发（时段/健康/求关注/余额/随机），也可用 [morning] [noon] [afternoon] [evening] [midnight] [weekend] [health] [attention] [balance] [random] 前缀强制指定")
         self.talk_edit.setFixedHeight(110)
         form.addRow("文本库（每行一条）", self.talk_edit)
         talk_file = self.config.get("self_talk_file") or ""
