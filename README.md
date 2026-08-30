@@ -49,6 +49,8 @@
     外观设置、显示/隐藏桌宠或退出；桌宠找不到时也能从容退出。
 17. **健壮性**：余额查询带 20 秒看门狗（DNS 卡死等网络异常不再无声卡死，自动重试）；
     配置文件原子写入并自动保留备份，损坏时不再静默丢失设置。
+18. **字号统一**：通知气泡、余额文本、浮动文字共用同一字号（默认 14pt，范围 8-30），
+    在设置"通知"页的"通知/余额/浮动文字字号"或余额文本上滚轮均可调整，三处同步缩放。
 
 ## 效果展示
 
@@ -107,7 +109,7 @@ python main.py
 - `pet_interact_image`：左键交互图片/动图路径（PNG/GIF）；
 - `pet_pos`：桌宠位置；
 - `show_balance`：余额常态显示开关；
-- `balance_font_size`：余额字号（9-24）；
+- `balance_font_size`：全局字号（通知/余额/浮动文字，8-30，设置面板或余额文本滚轮调整）；
 - `poll_interval_sec`：余额轮询间隔（秒，默认 3，可在设置面板调整，最低 1）；
 - `always_on_top`：窗口置顶开关（通知/桌宠/余额文本/浮动字同步）；
 - `self_talk_enabled` / `self_talk_texts` / `self_talk_interval` / `self_talk_file`：
@@ -139,7 +141,7 @@ python main.py
 
 ## 开发与测试
 
-离屏自检（无需真实 GUI 环境，50 项断言）：
+离屏自检（无需真实 GUI 环境，55 项断言）：
 
 ```bash
 python tests/offscreen_smoke.py

@@ -439,6 +439,7 @@ class DesktopPet:
             outline=self.config.get("balloon_outline", "#1E3A8A"),
             persistent=persistent,
             always_on_top=bool(self.config.get("always_on_top", True)),
+            font_size=int(self.config.get("balance_font_size", 14) or 14),
         )
         self._balloon.confirmed.connect(self._on_balloon_confirmed)
         if persistent:

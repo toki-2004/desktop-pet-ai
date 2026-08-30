@@ -54,6 +54,9 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
 17. **Robustness**: balance polling has a 20-second watchdog (network stalls like hung DNS no longer freeze it
     silently; it retries automatically); config.json is written atomically with an automatic backup, and a corrupted
     file no longer silently drops settings.
+18. **Unified font size**: notification balloon, balance text, and floating text share one font size
+    (default 14pt, range 8-30); adjust it in the Notification tab ("Notification/balance/floating font size")
+    or by scrolling the mouse wheel over the balance text - all three scale together.
 
 ## Screenshots
 
@@ -112,7 +115,8 @@ The configuration file is `config.json` in the project root (generated automatic
 - `pet_interact_image`: left-click interaction image/GIF path (PNG/GIF);
 - `pet_pos`: pet position;
 - `show_balance`: persistent balance display toggle;
-- `balance_font_size`: balance font size (9-24);
+- `balance_font_size`: unified font size for notification/balance/floating text (8-30, adjustable in
+  settings or by scrolling over the balance text);
 - `poll_interval_sec`: balance polling interval in seconds (default 3, adjustable in the settings panel, minimum 1);
 - `always_on_top`: always-on-top toggle (synced across notifications / pet / balance text / floating text);
 - `self_talk_enabled` / `self_talk_texts` / `self_talk_interval` / `self_talk_file`:
@@ -144,7 +148,7 @@ On a period switch, a notification pops up and stays visible until you click "Go
 
 ## Development and Testing
 
-An offscreen self-check (no real GUI needed, 50 assertions):
+An offscreen self-check (no real GUI needed, 55 assertions):
 
 ```bash
 python tests/offscreen_smoke.py

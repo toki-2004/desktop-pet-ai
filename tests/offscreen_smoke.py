@@ -18,9 +18,11 @@ from PyQt5.QtCore import QCoreApplication, QEventLoop, QTimer, QEvent, QPointF, 
 from PyQt5.QtGui import QImage  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
+from balloon import ThinkingBalloon  # noqa: E402
 from config import Config  # noqa: E402
 from pet_window import PetWindow, StatusLabel  # noqa: E402
 from scheduler import is_peak  # noqa: E402
+from settings_dialog import SettingsDialog  # noqa: E402
 
 app = QApplication(sys.argv)
 
@@ -340,6 +342,31 @@ border_i, fill_i = render_colors(False)
 check("idle border is green family", border_i.green() > border_i.red() + 20,
       (border_i.red(), border_i.green(), border_i.blue()))
 check("idle fill is semi-transparent", 0 < fill_i.alpha() < 255, fill_i.alpha())
+
+# 11. 字号统一：通知/余额/浮动文字共用 balance_font_size
+cfg_f = Config(os.path.join(tmp, "font_config.json"))
+cfg_f.set("balance_font_size", 22)
+b_big = ThinkingBalloon("主人，有新消息啦！", font_size=22)
+b_small = ThinkingBalloon("主人，有新消息啦！", font_size=8)
+check("balloon font size follows config", b_big._font_size == 22 and b_big.width() > b_small.width(),
+      (b_big.width(), b_small.width()))
+
+pet_f = PetWindow(cfg_f, default_image=normal_png)
+pet_f.balance_label._apply_style()
+check("balance label font point size unified", pet_f.balance_label.font().pointSize() == 22,
+      pet_f.balance_label.font().pointSize())
+pet_f.show_float_text("字号统一", "#22C55E")
+float_styles = [lab.styleSheet() for lab in list(pet_f._floats)]
+check("float text uses pt and same size",
+      any("font-size:22pt" in s and "px" not in s for s in float_styles), float_styles)
+
+dlg_f = SettingsDialog(cfg_f)
+check("settings dialog exposes unified font size", dlg_f.font_spin.value() == 22,
+      dlg_f.font_spin.value())
+dlg_f.font_spin.setValue(16)
+dlg_f._save()
+check("settings save writes unified font size", cfg_f.get("balance_font_size") == 16,
+      cfg_f.get("balance_font_size"))
 
 print("")
 print("RESULT: {} passed, {} failed".format(passed, len(failed)))

@@ -109,6 +109,12 @@ class SettingsDialog(QDialog):
         self.poll_spin.setSuffix(" 秒")
         form.addRow("余额刷新间隔", self.poll_spin)
 
+        self.font_spin = QSpinBox()
+        self.font_spin.setRange(8, 30)
+        self.font_spin.setValue(int(self.config.get("balance_font_size", 14) or 14))
+        self.font_spin.setSuffix(" pt")
+        form.addRow("通知/余额/浮动文字字号", self.font_spin)
+
         self.fill_edit, self.fill_btn = self._color_row(form, "云线填充色", self.config.get("balloon_fill", "#FFFFFF"))
         self.outline_edit, self.outline_btn = self._color_row(form, "云线描边色", self.config.get("balloon_outline", "#1E3A8A"))
 
@@ -394,6 +400,7 @@ class SettingsDialog(QDialog):
         self.config.set("pet_interact_image", self._current_interact)
         self.config.set("always_on_top", self.top_check.isChecked())
         self.config.set("poll_interval_sec", self.poll_spin.value())
+        self.config.set("balance_font_size", self.font_spin.value())
         self.config.set("self_talk_enabled", self.talk_check.isChecked())
         self.config.set("self_talk_interval", self.talk_interval.value())
         texts = [t.strip() for t in self.talk_edit.toPlainText().splitlines() if t.strip()]

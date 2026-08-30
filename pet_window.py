@@ -259,6 +259,7 @@ class PetWindow(QWidget):
         self._apply_top_flag()
         # 时段状态常态显示：文案可被 config 自定义，这里同步刷新并随窗口显示
         self.status_label.set_state(is_peak())
+        self.status_label._apply_style()  # 字号跟随 balance_font_size（-2），设置改动后强制刷新
         self._place_status()
         self.status_label.show()
 
@@ -491,7 +492,7 @@ class PetWindow(QWidget):
         lab.setAttribute(Qt.WA_TranslucentBackground)
         fs = int(self.config.get("balance_font_size", 14) or 14)
         lab.setStyleSheet(
-            "color:%s; font-size:%dpx; font-weight:bold; background:transparent;"
+            "color:%s; font-size:%dpt; font-weight:bold; background:transparent;"
             % (color, fs)
         )
         lab.adjustSize()

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """思考云线：白底深蓝描边（可自定义），文字居中，可常驻直到确认。"""
-import math
 
 from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer
-from PyQt5.QtGui import QPainter, QColor, QPainterPath, QPen
+from PyQt5.QtGui import QPainter, QColor, QPainterPath, QPen, QFont, QFontMetrics
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout
 
 from pet_window import set_topmost_flag
@@ -15,7 +14,7 @@ class ThinkingBalloon(QWidget):
     confirmed = pyqtSignal()
 
     def __init__(self, text="", fill="#FFFFFF", outline="#1E3A8A",
-                 persistent=False, always_on_top=True):
+                 persistent=False, always_on_top=True, font_size=14):
         flags = Qt.FramelessWindowHint | Qt.Tool
         if always_on_top:
             flags |= Qt.WindowStaysOnTopHint
@@ -28,11 +27,18 @@ class ThinkingBalloon(QWidget):
         self._outline = QColor(outline)
         self._persistent = persistent
 
-        # 根据文本长度自适应气泡尺寸
-        char_w = 17
-        lines = max(1, math.ceil(len(text) / 13))
-        w = min(460, max(210, 70 + char_w * min(len(text), 26)))
-        h = min(230, max(92, 54 + 24 * lines))
+        # 字号统一：通知气泡与余额/浮动文字共用 balance_font_size（8-30）。
+        # 气泡尺寸按实际字体测量，字号增大时文字不裁切。
+        self._font_size = max(8, min(30, int(font_size or 14)))
+        font = QFont()
+        font.setPointSize(self._font_size)
+        font.setBold(True)
+        fm = QFontMetrics(font)
+        max_w = min(460, max(210, fm.horizontalAdvance(text) + 80))
+        rect = fm.boundingRect(0, 0, max_w - 48, 1000,
+                               Qt.AlignCenter | Qt.TextWordWrap, text)
+        w = min(500, max(210, rect.width() + 60))
+        h = min(260, max(100, rect.height() + 64))
         self.setFixedSize(w, h)
 
         if persistent:
@@ -99,7 +105,7 @@ class ThinkingBalloon(QWidget):
 
         p.setPen(QColor(30, 30, 30))
         font = p.font()
-        font.setPointSize(11)
+        font.setPointSize(self._font_size)
         font.setBold(True)
         p.setFont(font)
         text_rect = QRectF(bubble.adjusted(18, 12, -18, -12))
