@@ -264,6 +264,10 @@ _json.dump([
     "余额稳稳的，安全感满满～",
     "普通随机话语。",
     "[time] 周末愉快，今天有什么安排吗？",   # 旧写法兼容：按内容细分到 weekend
+    "[sunny] 阳光真好，适合出去走走。",
+    "[rainy] 下雨了，出门记得带伞哦。",
+    "[windy] 起风了，主人多穿一件吧。",
+    "[weather] 今天的天气，全看主人的心情！",
 ], open(talk10, "w", encoding="utf-8"), ensure_ascii=False)
 t10 = main_mod.SelfTalkMonitor(cfg2, talk10)
 said = []
@@ -278,6 +282,11 @@ check("classify health", any("喝水" in x for x in t10._pools.get("health", [])
 check("classify attention", any("摸摸" in x for x in t10._pools.get("attention", [])))
 check("classify balance", any("余额" in x for x in t10._pools.get("balance", [])))
 check("classify random", "普通随机话语。" in t10._pools.get("random", []))
+check("classify [sunny]", any("阳光真好" in x for x in t10._pools.get("weather_sunny", [])))
+check("classify [rainy]", any("出门记得带伞" in x for x in t10._pools.get("weather_rainy", [])))
+check("classify [windy]", any("多穿一件" in x for x in t10._pools.get("weather_windy", [])))
+check("weather pools stay separate from random",
+      "阳光真好" not in t10._pools.get("random", []) and "weather" in t10._pools)
 
 # 时段窗口：清晨 8 点触发 morning；下午 14 点触发 afternoon；深夜 23:30 触发 midnight
 t10._now_fn = lambda: _dt(2026, 8, 30, 8, 0)
@@ -315,16 +324,40 @@ check("balance quote fired on change", any("余额稳稳" in x for x in said))
 t10.on_balance_change()
 check("balance quote throttled", len([x for x in said if "余额稳稳" in x]) == 1)
 
+# 天气触发：同一天气每天至多一次，换天气触发不同文本，空池回退通用天气池
+t10.set_weather("sunny")
+check("weather sunny fires", any("阳光真好" in x for x in said), said)
+count_sunny = len(said)
+t10.set_weather("sunny")
+check("same weather once per day", len(said) == count_sunny)
+t10.set_weather("rainy")
+check("different weather fires different text", any("出门记得带伞" in x for x in said), said)
+t10.set_weather("snowy")  # weather_snowy 池为空 -> 回退通用 [weather] 池
+check("empty weather pool falls back to generic", any("全看主人的心情" in x for x in said), said)
+
 # 9. 完整应用级回归：DesktopPet 装配后余额标签必须脱离占位
 # （2026-08-30 事故：托盘编辑把 _wire 拦腰截断，余额/时段/语录信号整体失联，
 #   组件级测试抓不到装配错误——必须构造完整 DesktopPet 验证一次）
 import main as main_mod2  # noqa: E402
+import weather as weather_mod  # noqa: E402
+
+
+class _FakeWeather(weather_mod.WeatherMonitor):
+    """离屏测试：start 时同步发一次天气信号，不访问网络。"""
+    def start(self):
+        self.weatherChanged.emit("sunny")
+
+
+main_mod2.WeatherMonitor = _FakeWeather
 pet2 = main_mod2.DesktopPet()
 app.processEvents()
 label2 = pet2.window.balance_label.text()
 check("app-level: balance label left placeholder", label2 != "余额…", label2)
 check("app-level: label shows selftest or real balance",
       label2 == "selftest" or label2.startswith("¥"), label2)
+check("app-level: weather wired to self-talk",
+      pet2.talk._fired_weather.get("weather_sunny") == pet2.talk._now_fn().date().isoformat(),
+      pet2.talk._fired_weather)
 
 # 5. 配色渲染：高峰红系/空闲绿系，纯色边框 + 半透明底纹
 def render_colors(state):
@@ -367,6 +400,48 @@ dlg_f.font_spin.setValue(16)
 dlg_f._save()
 check("settings save writes unified font size", cfg_f.get("balance_font_size") == 16,
       cfg_f.get("balance_font_size"))
+
+# 12. 天气：WMO 分类映射 + 看门狗（模拟 DNS 挂死）
+from weather import classify as _wclass  # noqa: E402
+
+check("wclass sunny", _wclass(0, 5) == "sunny")
+check("wclass cloudy", _wclass(3, 5) == "cloudy")
+check("wclass rainy", _wclass(61, 5) == "rainy")
+check("wclass snowy", _wclass(71, 5) == "snowy")
+check("wclass foggy", _wclass(45, 5) == "foggy")
+check("wclass stormy", _wclass(95, 5) == "stormy")
+check("wclass windy overrides clear", _wclass(0, 45) == "windy")
+
+errs_w, kinds_w = [], []
+fetch_calls = {"n": 0}
+
+
+def counting_fetch():
+    if fetch_calls["n"] == 0:
+        fetch_calls["n"] += 1
+        _time.sleep(5)  # 仅首次挂死，模拟 DNS 卡死
+    fetch_calls["n"] += 1
+    return ("sunny", "ok-test")
+
+
+wm = weather_mod.WeatherMonitor(
+    cfg2, fetch_fn=counting_fetch, watchdog_ms=300)
+wm.weatherError.connect(errs_w.append)
+wm.weatherChanged.connect(kinds_w.append)
+wm.refresh()
+loop_w = QEventLoop()
+QTimer.singleShot(700, loop_w.quit)
+loop_w.exec_()
+check("weather watchdog fires on hung fetch", any("超时" in e for e in errs_w), errs_w)
+got_w = False
+for _ in range(60):
+    if "sunny" in kinds_w:
+        got_w = True
+        break
+    loop_w2 = QEventLoop()
+    QTimer.singleShot(150, loop_w2.quit)
+    loop_w2.exec_()
+check("weather retry succeeds after watchdog", got_w and "sunny" in kinds_w, kinds_w)
 
 print("")
 print("RESULT: {} passed, {} failed".format(passed, len(failed)))

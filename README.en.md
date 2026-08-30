@@ -33,10 +33,14 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
    edited and expanded to any number of entries.
 8. **Self-talk (context-aware triggers)**: quotes are auto-classified by content and delivered through different triggers -
    time-of-day greetings (morning/lunch/tea/evening/weekend, once per day each), health reminders (45 minutes of
-   keyboard/mouse idle), attention seeking (90 minutes without interaction), balance changes (probabilistic), and random
-   chatter (configurable interval); period quotes accept [morning] [noon] [afternoon] [evening] [midnight] [weekend]
+   keyboard/mouse idle), attention seeking (90 minutes without interaction), balance changes (probabilistic),
+   **weather triggers** (IP-based location + Open-Meteo live weather: sunny/cloudy/rainy/snowy/foggy/windy/stormy,
+   at most once per weather per day), and random chatter (configurable interval);
+   period quotes accept [morning] [noon] [afternoon] [evening] [midnight] [weekend]
    prefixes for exact windows (or the legacy [time] prefix to auto-subdivide by
-   content); other triggers accept [health] [attention] [balance] [random] prefixes.
+   content); other triggers accept [health] [attention] [balance] [random] [sunny] [cloudy] [rainy] [snowy]
+   [foggy] [windy] [stormy] prefixes ([weather] is the generic fallback pool).
+   The weather APIs need no key (ip-api.com for location + Open-Meteo).
    The text library, toggle, and interval are all adjustable in settings.
 9. **JSON-based quote libraries**: head-pat and self-talk quotes are now stored in separate JSON files
    (`pet_head_quotes.json` / `self_talk_quotes.json`); preset default libraries are generated automatically on first run;
@@ -150,7 +154,7 @@ On a period switch, a notification pops up and stays visible until you click "Go
 
 ## Development and Testing
 
-An offscreen self-check (no real GUI needed, 55 assertions):
+An offscreen self-check (no real GUI needed, 73 assertions):
 
 ```bash
 python tests/offscreen_smoke.py

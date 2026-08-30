@@ -29,10 +29,14 @@
    摸头语录与自言自语是两个独立语录库，互不干扰，均可编辑扩充至任意条数。
 8. **自言自语（情境触发）**：语录按内容自动分类，用不同方式触发——时点问候
    （早安/午饭/下午茶/夜晚/周末，各时段每天一次）、健康提醒（键鼠闲置 45 分钟）、
-   求关注（90 分钟没有互动）、余额变动（概率触发）、随机闲聊（按设置间隔）；
+   求关注（90 分钟没有互动）、余额变动（概率触发）、**天气触发**（按本机 IP 定位 +
+   Open-Meteo 实时天气，晴天/多云/下雨/下雪/雾/起风/雷暴，同一天气每天至多一次）、
+   随机闲聊（按设置间隔）；
    时段类语录可用 [morning] [noon] [afternoon] [evening] [midnight] [weekend]
    前缀精确指定（也可用 [time] 兼容写法按内容自动细分）；其他触发用
-   [health] [attention] [balance] [random] 前缀强制指定。
+   [health] [attention] [balance] [random] [sunny] [cloudy] [rainy] [snowy]
+   [foggy] [windy] [stormy] 前缀强制指定（[weather] 为通用天气池，具体天气池
+   为空时回退到这里）。天气接口免 key（ip-api.com 定位 + Open-Meteo）。
    文本库、开关、间隔均可在设置中调整。
 9. **语录库 JSON 化**：摸头与自言自语语录均改为独立的 JSON 文件存储
    （`pet_head_quotes.json` / `self_talk_quotes.json`），首次运行自动生成预置默认
@@ -143,7 +147,7 @@ python main.py
 
 ## 开发与测试
 
-离屏自检（无需真实 GUI 环境，55 项断言）：
+离屏自检（无需真实 GUI 环境，73 项断言）：
 
 ```bash
 python tests/offscreen_smoke.py

@@ -23,6 +23,7 @@ from balloon import ThinkingBalloon
 from balance import BalanceMonitor
 from scheduler import ScheduleMonitor
 from settings_dialog import SettingsDialog
+from weather import WeatherMonitor
 import autostart
 
 FROZEN = bool(getattr(sys, "frozen", False))
@@ -101,6 +102,9 @@ class SelfTalkMonitor(QObject):
       [health]    健康提醒：键鼠闲置满 45 分钟触发一次（久坐/喝水/活动/护眼）
       [attention] 求关注：超过 90 分钟没有摸头/单击互动时触发
       [balance]   余额变动：余额增减事件后概率触发（每小时至多一次）
+      [sunny]/[cloudy]/[rainy]/[snowy]/[foggy]/[windy]/[stormy]
+                  天气触发：按本机位置实时天气触发，同一天气每天至多一次；
+                  [weather] 为通用天气池（具体天气池为空时回退到这里）
       [random]    随机闲聊：按设置的间隔随机触发（原有行为）
     """
 
@@ -140,6 +144,7 @@ class SelfTalkMonitor(QObject):
     ATTENTION_MINUTES = 90         # 多久没有互动触发求关注
     BALANCE_CHANCE = 0.35          # 余额变动后触发余额语录的概率
     BALANCE_THROTTLE_S = 3600      # 余额语录冷却
+    WEATHER_KINDS = ("sunny", "cloudy", "rainy", "snowy", "foggy", "windy", "stormy")
 
     def __init__(self, config, text_file):
         super().__init__()
@@ -155,6 +160,7 @@ class SelfTalkMonitor(QObject):
         self._last_health = 0.0
         self._last_balance_quote = 0.0
         self._fired_rules = {}    # time 规则 -> 已触发日期
+        self._fired_weather = {}   # 天气池 -> 已触发日期
         # 可注入（测试/外部调整）
         self._now_fn = datetime.now
         self._mono_fn = time.monotonic
@@ -179,6 +185,8 @@ class SelfTalkMonitor(QObject):
                 forced = self._time_subtag(body) or "random"
             if forced in self.TIME_SUBTAGS:
                 return "time_" + forced, body
+            if forced in self.WEATHER_KINDS:
+                return "weather_" + forced, body
             return forced, body
         for t, kws in self.KEYWORDS.items():
             if any(k in body for k in kws):
@@ -200,9 +208,9 @@ class SelfTalkMonitor(QObject):
         for t in texts:
             tag, body = self._classify(t)
             self._pools.setdefault(tag, []).append(body)
-        # 时段无关的内容池（work/weather/game）没有专属触发方式，
-        # 并入随机闲聊轮换，避免刚性打标后这些语录永远无法展示
-        for tag in ("work", "weather", "game"):
+        # 无专属触发方式的内容池（work/game）并入随机闲聊轮换，
+        # 避免刚性打标后这些语录永远无法展示（weather 已升级为专属天气触发）
+        for tag in ("work", "game"):
             extra = self._pools.pop(tag, [])
             self._pools["random"] = self._pools.get("random", []) + extra
         return len(texts)
@@ -213,7 +221,11 @@ class SelfTalkMonitor(QObject):
             # 时段子池为空时宁可沉默，也不回退随机池（否则时段错配，如下午弹"夜深了"）
             if tag.startswith("time_"):
                 return None
-            pool = self._pools.get("random") or []
+            if tag.startswith("weather_"):
+                # 具体天气池为空时回退通用天气池（[weather]），再回退随机池
+                pool = self._pools.get("weather") or []
+            if not pool:
+                pool = self._pools.get("random") or []
         return random.choice(pool) if pool else None
 
     def _emit_tag(self, tag):
@@ -274,6 +286,15 @@ class SelfTalkMonitor(QObject):
             if self._emit_tag("balance"):
                 self._last_balance_quote = mono
 
+    def set_weather(self, kind):
+        """天气变化时调用：当天同一天气至多触发一次（换天气/跨天可再触发）。"""
+        tag = ("weather_" + kind) if kind in self.WEATHER_KINDS else "weather"
+        today = self._now_fn().date().isoformat()
+        if self._fired_weather.get(tag) == today:
+            return
+        if self._emit_tag(tag):
+            self._fired_weather[tag] = today
+
     def note_interaction(self):
         """摸头/单击互动发生时调用：刷新求关注计时。"""
         self._last_pat = self._mono_fn()
@@ -315,6 +336,7 @@ class DesktopPet:
         self.monitor = BalanceMonitor(self.config)
         self.schedule = ScheduleMonitor()
         self.talk = SelfTalkMonitor(self.config, self.talk_file)
+        self.weather = WeatherMonitor(self.config)
         self._balloon = None
         self._special_active = False
         self._last_error_ts = 0.0
@@ -325,6 +347,7 @@ class DesktopPet:
             self.config.set("pet_interact_image", DEFAULT_INTERACT)
         self.window.show()
         self.monitor.start()
+        self.weather.start()
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
     def _ensure_quote_files(self):
@@ -394,6 +417,12 @@ class DesktopPet:
         s.peakStarted.connect(lambda: w.status_label.set_state(True))
         s.idleStarted.connect(lambda: w.status_label.set_state(False))
         self.talk.talk.connect(self._show_balloon)
+        self.weather.weatherChanged.connect(self.talk.set_weather)
+        self.weather.weatherError.connect(self._on_weather_error)
+
+    def _on_weather_error(self, msg):
+        """天气拉取失败：只留日志，不弹通知打扰用户。"""
+        petlog.log("weather error: %s" % msg)
 
     def _restore_position(self):
         pos = self.config.get("pet_pos")
