@@ -200,6 +200,11 @@ class SelfTalkMonitor(QObject):
         for t in texts:
             tag, body = self._classify(t)
             self._pools.setdefault(tag, []).append(body)
+        # 时段无关的内容池（work/weather/game）没有专属触发方式，
+        # 并入随机闲聊轮换，避免刚性打标后这些语录永远无法展示
+        for tag in ("work", "weather", "game"):
+            extra = self._pools.pop(tag, [])
+            self._pools["random"] = self._pools.get("random", []) + extra
         return len(texts)
 
     def _pick(self, tag):
@@ -320,6 +325,7 @@ class DesktopPet:
             self.config.set("pet_interact_image", DEFAULT_INTERACT)
         self.window.show()
         self.monitor.start()
+        self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
     def _ensure_quote_files(self):
         """确保两个语录库存在且为 JSON：旧 txt 自动迁移，缺失时复制预置默认库。"""
@@ -482,13 +488,17 @@ class DesktopPet:
         if self._balloon is not None:
             self._balloon.set_top_flag(bool(self.config.get("always_on_top", True)))
 
-        self._setup_tray()
-
     def _setup_tray(self):
-        """托盘图标：左键单击显示/隐藏桌宠，右键菜单（设置 / 显示隐藏 / 退出）。
+        petlog.log("tray setup entered")
+        self._tray_attempts = 0
+        self._create_tray(1)
 
-        补上"无托盘"的已知限制——桌宠找不到时也能从托盘隐藏/退出。
-        图标优先用打包资源目录的 icon.png，回退项目根目录同名文件。
+    def _create_tray(self, attempt):
+        """创建托盘图标：左键单击显示/隐藏桌宠，右键菜单（设置 / 显示隐藏 / 退出）。
+
+        独立组件：创建于全部窗口显示之后；创建后 2.5 秒自检图标是否真实注册，
+        未注册则 hide/show 重试（最多 3 次）。图标优先用打包资源目录的
+        icon.png，回退项目根目录同名文件。
         """
         icon_path = os.path.join(BUNDLE_DIR, "icon.png")
         if not os.path.isfile(icon_path):
@@ -502,15 +512,54 @@ class DesktopPet:
         menu.addSeparator()
         menu.addAction("退出", QApplication.instance().quit)
         tray.setContextMenu(menu)
-        tray.setToolTip("桌宠")
+        tray.setToolTip("桌宠（余额与提醒）")
         tray.activated.connect(self._on_tray_activated)
         tray.show()
-        # Windows 11 默认把新托盘图标收纳进隐藏区：启动通知帮用户确认与定位
-        tray.showMessage("桌宠已启动",
-                         "托盘图标已就绪；若任务栏上没有看到，请点任务栏角落的 ^ 展开隐藏图标。",
-                         QSystemTrayIcon.Information, 5000)
         self._tray = tray
         self._tray_menu = menu
+        petlog.log("tray create #%d: shown (visible=%s available=%s)" % (
+            attempt, tray.isVisible(), QSystemTrayIcon.isSystemTrayAvailable()))
+        QTimer.singleShot(2500, lambda: self._verify_tray(tray, attempt))
+
+    def _verify_tray(self, tray, attempt):
+        """UIA 自检：枚举任务栏与隐藏区按钮，确认桌宠图标已真实注册；
+        未注册则重建托盘（最多 3 次），枚举失败时不误判。"""
+        found = self._uia_tray_has_icon()
+        petlog.log("tray verify #%d: found=%s" % (attempt, found))
+        if found:
+            self._startup_notice()
+            return
+        if attempt >= 3:
+            petlog.log("tray verify: 放弃自动重试（图标仍未出现，请检查任务栏隐藏区）")
+            return
+        tray.hide()
+        tray.show()
+        QTimer.singleShot(2000, lambda: self._verify_tray(tray, attempt + 1))
+
+    def _uia_tray_has_icon(self):
+        try:
+            from pywinauto import Desktop
+            d = Desktop(backend="uia")
+            names = []
+            taskbar = d.window(class_name="Shell_TrayWnd")
+            for b in taskbar.descendants(control_type="Button"):
+                names.append(b.window_text())
+            for w in d.windows():
+                try:
+                    if "Island" in (w.element_info.class_name or ""):
+                        for b in w.descendants(control_type="Button"):
+                            names.append(b.window_text())
+                except Exception:
+                    pass
+            return any(("桌宠" in x) or ("余额与提醒" in x) for x in names)
+        except Exception as e:
+            petlog.log("tray verify enumeration error: %s" % e)
+            return True  # 枚举失败时不误判，保持现状
+
+    def _startup_notice(self):
+        self._tray.showMessage("桌宠已启动",
+                               "托盘图标已就绪；若任务栏上没有看到，请点任务栏角落的 ^ 展开隐藏图标。",
+                               QSystemTrayIcon.Information, 5000)
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:  # 左键单击
