@@ -81,6 +81,7 @@ class SettingsDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_notify_tab(), "通知")
         self.tabs.addTab(self._build_appearance_tab(), "外观")
+        self.tabs.addTab(self._build_affection_tab(), "好感/状态")
         self.tabs.addTab(self._build_accounts_tab(), "账号")
         self.tabs.setCurrentIndex(initial_tab)
 
@@ -125,7 +126,7 @@ class SettingsDialog(QDialog):
         form.addRow("自言自语总开关", self.talk_check)
         self.talk_edit = QPlainTextEdit()
         self.talk_edit.setPlainText("\n".join(self._load_talk_texts()))
-        self.talk_edit.setPlaceholderText("每行一条；自动按内容分类触发（时段/健康/求关注/余额/天气/随机），也可用 [morning] [noon] [afternoon] [evening] [midnight] [weekend] [health] [attention] [balance] [sunny] [cloudy] [rainy] [snowy] [foggy] [windy] [stormy] [random] 前缀强制指定")
+        self.talk_edit.setPlaceholderText("每行一条；自动按内容分类触发（时段/健康/求关注/余额/天气/随机），也可用 [morning] [noon] [afternoon] [evening] [midnight] [weekend] [health] [attention] [balance] [work_down] [work_flat] [work_up] [affection_high] [affection_mid] [affection_low] [sunny] [cloudy] [rainy] [snowy] [foggy] [windy] [stormy] [random] 前缀强制指定")
         self.talk_edit.setFixedHeight(110)
         form.addRow("文本库（每行一条）", self.talk_edit)
         talk_file = self.config.get("self_talk_file") or ""
@@ -359,6 +360,79 @@ class SettingsDialog(QDialog):
         lay.addLayout(row)
         return w
 
+    # ---------- 好感/状态页 ----------
+    def _build_affection_tab(self):
+        w = QWidget()
+        form = QFormLayout(w)
+        form.addRow(QLabel("好感度：摸头/单击上升，长时间不互动随时间下降"))
+        self.aff_check = QCheckBox("启用好感度系统")
+        self.aff_check.setChecked(bool(self.config.get("affection_enabled", True)))
+        form.addRow("好感度总开关", self.aff_check)
+
+        self.aff_initial = QSpinBox()
+        self.aff_initial.setRange(0, 10000)
+        self.aff_initial.setValue(int(self.config.get("affection_initial", 70)))
+        form.addRow("初始好感（新档位/重置）", self.aff_initial)
+
+        self.aff_max = QSpinBox()
+        self.aff_max.setRange(1, 10000)
+        self.aff_max.setValue(int(self.config.get("affection_max", 100)))
+        form.addRow("好感上限", self.aff_max)
+
+        self.aff_gain = QSpinBox()
+        self.aff_gain.setRange(0, 1000)
+        self.aff_gain.setValue(int(self.config.get("affection_gain", 5)))
+        form.addRow("每次摸头增加", self.aff_gain)
+
+        self.aff_decay = QSpinBox()
+        self.aff_decay.setRange(1, 86400)
+        self.aff_decay.setValue(int(self.config.get("affection_decay_sec", 300)))
+        self.aff_decay.setSuffix(" 秒")
+        form.addRow("每下降 1 点所需时长", self.aff_decay)
+
+        self.aff_high = QSpinBox()
+        self.aff_high.setRange(0, 100)
+        self.aff_high.setValue(int(self.config.get("affection_high_threshold_pct", 80)))
+        self.aff_high.setSuffix(" %")
+        form.addRow("高好感阈值（占上限比）", self.aff_high)
+
+        self.aff_low = QSpinBox()
+        self.aff_low.setRange(0, 100)
+        self.aff_low.setValue(int(self.config.get("affection_low_threshold_pct", 40)))
+        self.aff_low.setSuffix(" %")
+        form.addRow("低好感阈值（低于此值）", self.aff_low)
+
+        self.aff_cooldown = QSpinBox()
+        self.aff_cooldown.setRange(0, 86400)
+        self.aff_cooldown.setValue(int(self.config.get("affection_quote_cooldown_sec", 600)))
+        self.aff_cooldown.setSuffix(" 秒")
+        form.addRow("档位语录冷却", self.aff_cooldown)
+
+        self.aff_label_check = QCheckBox("显示好感标签")
+        self.aff_label_check.setChecked(bool(self.config.get("affection_label_enabled", True)))
+        form.addRow("桌宠旁的好感显示", self.aff_label_check)
+
+        form.addRow(QLabel("工作状态：余额降低=工作中，不变=空闲中，升高=充值了"))
+        self.work_label_check = QCheckBox("显示工作状态标签")
+        self.work_label_check.setChecked(bool(self.config.get("work_label_enabled", True)))
+        form.addRow("工作状态显示", self.work_label_check)
+
+        self.work_hold_spin = QSpinBox()
+        self.work_hold_spin.setRange(0, 86400)
+        self.work_hold_spin.setValue(int(self.config.get("work_state_hold_sec", 180)))
+        self.work_hold_spin.setSuffix(" 秒")
+        self.work_hold_spin.setToolTip("余额下降后保持'工作中'的时长；余额同步往往没那么快，避免很快又显示'空闲中'")
+        form.addRow("余额下降后保持'工作中'", self.work_hold_spin)
+
+        reset_btn = QPushButton("好感回到初始值")
+        reset_btn.clicked.connect(self._reset_affection)
+        form.addRow("", reset_btn)
+        return w
+
+    def _reset_affection(self):
+        self.config.set("affection_value", float(self.aff_initial.value()))
+        self.config.set("affection_last_update", 0.0)
+
     def _add_account(self):
         dlg = AccountDialog(self)
         if dlg.exec_() != QDialog.Accepted:
@@ -404,6 +478,17 @@ class SettingsDialog(QDialog):
         self.config.set("balance_font_size", self.font_spin.value())
         self.config.set("self_talk_enabled", self.talk_check.isChecked())
         self.config.set("self_talk_interval", self.talk_interval.value())
+        self.config.set("affection_enabled", self.aff_check.isChecked())
+        self.config.set("affection_initial", self.aff_initial.value())
+        self.config.set("affection_max", self.aff_max.value())
+        self.config.set("affection_gain", self.aff_gain.value())
+        self.config.set("affection_decay_sec", self.aff_decay.value())
+        self.config.set("affection_high_threshold_pct", self.aff_high.value())
+        self.config.set("affection_low_threshold_pct", self.aff_low.value())
+        self.config.set("affection_quote_cooldown_sec", self.aff_cooldown.value())
+        self.config.set("affection_label_enabled", self.aff_label_check.isChecked())
+        self.config.set("work_label_enabled", self.work_label_check.isChecked())
+        self.config.set("work_state_hold_sec", self.work_hold_spin.value())
         texts = [t.strip() for t in self.talk_edit.toPlainText().splitlines() if t.strip()]
         self._write_quotes("self_talk_file", "self_talk_texts", texts)
         head_texts = [t.strip() for t in self.head_edit.toPlainText().splitlines() if t.strip()]

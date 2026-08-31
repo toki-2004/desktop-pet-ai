@@ -30,7 +30,8 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
    (plays once, keeps the transparent background) and set it as the interaction skin.
 7. **Head-pat quotes**: each click pops up one random head-pat quote (in sync with the animation, one quote per click);
    head-pat quotes and self-talk are two independent quote libraries that do not interfere with each other, and both can be
-   edited and expanded to any number of entries.
+   edited and expanded to any number of entries; entries may use a [high] / [low] prefix, and quotes matching the
+   current affection tier are preferred.
 8. **Self-talk (context-aware triggers)**: quotes are auto-classified by content and delivered through different triggers -
    time-of-day greetings (morning/lunch/tea/evening/weekend, once per day each), health reminders (45 minutes of
    keyboard/mouse idle), attention seeking (90 minutes without interaction), balance changes (probabilistic),
@@ -39,28 +40,40 @@ A desktop pet core built on PyQt5: transparent and always-on-top, draggable, wit
    period quotes accept [morning] [noon] [afternoon] [evening] [midnight] [weekend]
    prefixes for exact windows (or the legacy [time] prefix to auto-subdivide by
    content); other triggers accept [health] [attention] [balance] [random] [sunny] [cloudy] [rainy] [snowy]
-   [foggy] [windy] [stormy] prefixes ([weather] is the generic fallback pool).
+   [foggy] [windy] [stormy] prefixes ([weather] is the generic fallback pool); work status and affection tiers
+   have their own triggers: [work_down] (balance decreasing = working) / [work_flat] (balance unchanged = idle) /
+   [work_up] (balance rising = topped up), plus [affection_high] / [affection_mid] / [affection_low]
+   (fired on tier switches, throttled to avoid spam).
    The weather APIs need no key (ip-api.com for location + Open-Meteo).
    The text library, toggle, and interval are all adjustable in settings.
-9. **JSON-based quote libraries**: head-pat and self-talk quotes are now stored in separate JSON files
+9. **Affection system**: head-patting / single-click interaction raises affection (default +5 each time), and it
+   decays over time while ignored (default -1 per 5 minutes, including while the app is closed); affection is split
+   into high/mid/low tiers (default >=80 high, <40 low) - tier switches fire matching self-talk and steer head-pat
+   quote selection; a small "affection" label sits beside the pet (toggleable), and the "Affection/Status" settings
+   tab tunes the initial value, max, gain/decay rates, thresholds, and cooldown.
+10. **Work status display**: judged by balance movement - balance decreasing = working, unchanged = idle,
+    rising = topped up; a "working / idle / topped up" label sits under the pet and fires matching work-status quotes;
+    after a balance drop the label stays "working" for 3 minutes (adjustable, default 180 s) so delayed balance
+    sync does not flip it back to "idle" too soon.
+11. **JSON-based quote libraries**: head-pat and self-talk quotes are now stored in separate JSON files
    (`pet_head_quotes.json` / `self_talk_quotes.json`); preset default libraries are generated automatically on first run;
    the legacy `self_talk.txt` is migrated to JSON automatically (the original file is kept).
-10. **Always-on-top toggle**: a single "show on top" setting controls all windows uniformly; notifications, the pet,
+12. **Always-on-top toggle**: a single "show on top" setting controls all windows uniformly; notifications, the pet,
     the balance text, and floating text switch together, so you never get "notifications on top but balance text not on top".
-11. **Polished balance display**: the persistent balance text sits at the upper right of the image, black text on white, with an adjustable font size.
-12. **Hot-applying settings**: any setting change (accounts, appearance, notifications, self-talk, always-on-top, refresh interval, etc.) takes effect immediately,
+13. **Polished balance display**: the persistent balance text sits at the upper right of the image, black text on white, with an adjustable font size.
+14. **Hot-applying settings**: any setting change (accounts, appearance, notifications, self-talk, always-on-top, refresh interval, etc.) takes effect immediately,
     no restart needed.
-13. **Basic interaction**: drag the pet with the left button; the position is remembered automatically; right-click opens the menu.
-14. **Launch at startup**: the right-click menu toggles "launch at startup" (writes to the current user's Run key, no administrator needed;
+15. **Basic interaction**: drag the pet with the left button; the position is remembered automatically; right-click opens the menu.
+16. **Launch at startup**: the right-click menu toggles "launch at startup" (writes to the current user's Run key, no administrator needed;
     starts silently via pythonw at boot).
-15. **Period status display**: the label directly below the pet always shows whether it is peak (red) or idle (green)
+17. **Period status display**: the label directly below the pet always shows whether it is peak (red) or idle (green)
     time - solid border, semi-transparent fill, rounded corners; it stays fixed in place during interaction playback.
-16. **System tray icon**: left-click the tray icon to show/hide the pet; the right-click menu opens notification
+18. **System tray icon**: left-click the tray icon to show/hide the pet; the right-click menu opens notification
     settings, appearance settings, show/hide, or quits - you can always quit even when the pet is hard to find.
-17. **Robustness**: balance polling has a 20-second watchdog (network stalls like hung DNS no longer freeze it
+19. **Robustness**: balance polling has a 20-second watchdog (network stalls like hung DNS no longer freeze it
     silently; it retries automatically); config.json is written atomically with an automatic backup, and a corrupted
     file no longer silently drops settings.
-18. **Unified font size**: notification balloon, balance text, and floating text share one font size
+20. **Unified font size**: notification balloon, balance text, and floating text share one font size
     (default 14pt, range 8-30); adjust it in the Notification tab ("Notification/balance/floating font size")
     or by scrolling the mouse wheel over the balance text - all three scale together. The notification
     balloon is mostly CJK text, which looks larger than digits at the same point size, so it renders at
@@ -158,7 +171,7 @@ On a period switch, a notification pops up and stays visible until you click "Go
 
 ## Development and Testing
 
-An offscreen self-check (no real GUI needed, 75 assertions):
+An offscreen self-check (no real GUI needed, 115 assertions):
 
 ```bash
 python tests/offscreen_smoke.py

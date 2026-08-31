@@ -24,6 +24,7 @@ from balance import BalanceMonitor
 from scheduler import ScheduleMonitor
 from settings_dialog import SettingsDialog
 from weather import WeatherMonitor
+from affection import AffectionSystem
 import autostart
 
 FROZEN = bool(getattr(sys, "frozen", False))
@@ -93,6 +94,29 @@ def _input_idle_seconds():
     return 0.0
 
 
+def pick_head_quote(head_file, fallback_texts, tier="mid"):
+    """按好感档位挑选摸头语录：档位池 -> 未标档位（neutral）池 -> 全部兜底。
+
+    语录支持 [high] / [low] 前缀（仅这两档有专属池，中间档用 neutral），
+    无前缀的语录任何档位都可使用。
+    """
+    texts = load_quote_file(head_file, fallback_texts)
+    pools = {"high": [], "low": [], "neutral": []}
+    for t in texts:
+        m = re.match(r"^\[(high|low)\]\s*(.*)$", t)
+        if m:
+            pools[m.group(1)].append(m.group(2).strip())
+        else:
+            pools["neutral"].append(t)
+    tier = tier if tier in ("high", "low") else "mid"
+    pool = pools.get(tier) or []
+    if not pool:
+        pool = pools["neutral"]
+    if not pool:
+        pool = texts
+    return random.choice(pool) if pool else ""
+
+
 class SelfTalkMonitor(QObject):
     """情境自言自语：按语录内容自动分类，用不同的触发方式呈现。
 
@@ -102,6 +126,12 @@ class SelfTalkMonitor(QObject):
       [health]    健康提醒：键鼠闲置满 45 分钟触发一次（久坐/喝水/活动/护眼）
       [attention] 求关注：超过 90 分钟没有摸头/单击互动时触发
       [balance]   余额变动：余额增减事件后概率触发（每小时至多一次）
+      [work_down] 工作状态：余额降低 = 正在工作，触发一次"工作中"语录（有冷却）
+      [work_flat] 工作状态：余额不变 = 没在工作，触发一次"空闲中"语录（有冷却）
+      [work_up]   工作状态：余额升高 = 充值了，触发一次"充值"语录（有冷却）
+      [affection_high]  好感度高（达到高阈值）时触发
+      [affection_mid]   好感度回到中间档时触发
+      [affection_low]   好感度低（低于低阈值）时触发
       [sunny]/[cloudy]/[rainy]/[snowy]/[foggy]/[windy]/[stormy]
                   天气触发：按本机位置实时天气触发，同一天气每天至多一次；
                   [weather] 为通用天气池（具体天气池为空时回退到这里）
@@ -144,7 +174,9 @@ class SelfTalkMonitor(QObject):
     ATTENTION_MINUTES = 90         # 多久没有互动触发求关注
     BALANCE_CHANCE = 0.35          # 余额变动后触发余额语录的概率
     BALANCE_THROTTLE_S = 3600      # 余额语录冷却
+    WORK_THROTTLE_S = 1800         # 工作状态语录冷却
     WEATHER_KINDS = ("sunny", "cloudy", "rainy", "snowy", "foggy", "windy", "stormy")
+    SILENT_IF_EMPTY = ("affection_high", "affection_mid", "affection_low")
 
     def __init__(self, config, text_file):
         super().__init__()
@@ -159,6 +191,7 @@ class SelfTalkMonitor(QObject):
         self._last_attention = 0.0
         self._last_health = 0.0
         self._last_balance_quote = 0.0
+        self._last_work_quote = {"up": 0.0, "down": 0.0, "flat": 0.0}
         self._fired_rules = {}    # time 规则 -> 已触发日期
         self._fired_weather = {}   # 天气池 -> 已触发日期
         # 可注入（测试/外部调整）
@@ -213,13 +246,17 @@ class SelfTalkMonitor(QObject):
         for tag in ("work", "game"):
             extra = self._pools.pop(tag, [])
             self._pools["random"] = self._pools.get("random", []) + extra
+        # 好感档位池必须有键（空池宁可沉默也不回退随机池）
+        for tag in self.SILENT_IF_EMPTY:
+            self._pools.setdefault(tag, [])
         return len(texts)
 
     def _pick(self, tag):
         pool = self._pools.get(tag)
         if not pool:
-            # 时段子池为空时宁可沉默，也不回退随机池（否则时段错配，如下午弹"夜深了"）
-            if tag.startswith("time_"):
+            # 时段/好感子池为空时宁可沉默，也不回退随机池
+            # （时段回退会错配，如下午弹"夜深了"；好感回退会让档位语义失真）
+            if tag.startswith("time_") or tag in self.SILENT_IF_EMPTY:
                 return None
             if tag.startswith("weather_"):
                 # 具体天气池为空时回退通用天气池（[weather]），再回退随机池
@@ -278,13 +315,32 @@ class SelfTalkMonitor(QObject):
             if self._emit_tag("attention"):
                 self._last_attention = mono
 
-    def on_balance_change(self):
-        """余额增减事件后调用：概率触发一条余额类语录（有冷却）。"""
+    def on_balance_change(self, direction=None, working_hold=False):
+        """余额变动事件后调用（direction: "up"/"down"/"flat"）。
+
+        任何变动都有概率触发余额类语录（有冷却）；direction 非空时
+        额外按方向触发工作状态语录（工作中/空闲中/充值了，各自冷却）；
+        working_hold=True 表示仍处于"余额下降后的保持期"，此时 flat 方向
+        不再触发"空闲中"语录（与工作标签显示保持一致）。
+        """
         mono = self._mono_fn()
         if (mono - self._last_balance_quote >= self.BALANCE_THROTTLE_S
                 and random.random() < self.balance_chance):
             if self._emit_tag("balance"):
                 self._last_balance_quote = mono
+        if direction in ("up", "down", "flat"):
+            tag = {"up": "work_up", "down": "work_down", "flat": "work_flat"}[direction]
+            if direction == "flat" and working_hold:
+                return
+            if mono - self._last_work_quote[direction] >= self.WORK_THROTTLE_S:
+                if self._emit_tag(tag):
+                    self._last_work_quote[direction] = mono
+
+    def on_affection_tier(self, tier):
+        """好感档位切换时调用：high -> [affection_high]，mid/low 同理。"""
+        tag = {"high": "affection_high", "mid": "affection_mid", "low": "affection_low"}.get(tier)
+        if tag:
+            self._emit_tag(tag)
 
     def set_weather(self, kind):
         """天气变化时调用：当天同一天气至多触发一次（换天气/跨天可再触发）。"""
@@ -336,6 +392,7 @@ class DesktopPet:
         self.monitor = BalanceMonitor(self.config)
         self.schedule = ScheduleMonitor()
         self.talk = SelfTalkMonitor(self.config, self.talk_file)
+        self.affection = AffectionSystem(self.config)
         self.weather = WeatherMonitor(self.config)
         self._balloon = None
         self._special_active = False
@@ -395,6 +452,7 @@ class DesktopPet:
         w.autoStartRequested.connect(self._on_auto_start)
         w.petHeadRequested.connect(self._show_pet_head)
         w.petHeadRequested.connect(lambda: self.talk.note_interaction())
+        w.petHeadRequested.connect(lambda: self.affection.note_pet())
         w.moved.connect(self._on_moved)
         m = self.monitor
         m.balanceUpdated.connect(w.set_balance_text)
@@ -403,9 +461,19 @@ class DesktopPet:
         petlog.log("wire: selftest emit returned")
         m.balanceUp.connect(lambda t: w.show_float_text(t, "#22C55E"))
         m.balanceDown.connect(lambda t: w.show_float_text(t, "#EF4444"))
-        m.balanceUp.connect(lambda t: self.talk.on_balance_change())
-        m.balanceDown.connect(lambda t: self.talk.on_balance_change())
+        m.balanceUp.connect(lambda t: w.work_label.set_state("up"))
+        m.balanceDown.connect(lambda t: w.work_label.set_state("down"))
+        m.balanceFlat.connect(lambda t: w.work_label.set_state("flat"))
+        m.balanceUp.connect(lambda t: self.talk.on_balance_change("up"))
+        m.balanceDown.connect(lambda t: self.talk.on_balance_change("down"))
+        m.balanceFlat.connect(lambda t: self.talk.on_balance_change(
+            "flat", working_hold=w.work_label.in_working_hold()))
         m.fetchError.connect(self._on_fetch_error)
+
+        a = self.affection
+        a.tierChanged.connect(self.talk.on_affection_tier)
+        a.valueChanged.connect(w.affection_label.set_affection)
+        w.affection_label.set_affection(a.value())
 
         s = self.schedule
         s.peakStarted.connect(lambda: self._show_balloon(
@@ -451,10 +519,14 @@ class DesktopPet:
             self.window.show_float_text("自启设置失败", "#EF4444")
 
     def _show_pet_head(self):
-        """长按桌宠：随机取一条摸头语录显示。"""
-        texts = load_quote_file(self.head_file, self.config.get("pet_head_texts") or [])
-        if texts:
-            self._show_balloon(random.choice(texts))
+        """单击桌宠：按当前好感档位随机取一条摸头语录显示。"""
+        text = pick_head_quote(
+            self.head_file,
+            self.config.get("pet_head_texts") or [],
+            tier=self.affection.tier(),
+        )
+        if text:
+            self._show_balloon(text)
 
     def _show_balloon(self, text, persistent=False):
         # 特殊通知（高峰/空闲，需点按钮确认）显示期间，抑制自言自语/摸头等普通通知
@@ -516,6 +588,7 @@ class DesktopPet:
         self.monitor.set_interval(int(self.config.get("poll_interval_sec", 3)))
         self.monitor.poll()
         self.talk._schedule()
+        self.affection.apply_config()
         if self._balloon is not None:
             self._balloon.set_top_flag(bool(self.config.get("always_on_top", True)))
 
@@ -605,6 +678,8 @@ class DesktopPet:
         else:
             w.balance_label.hide()
             w.status_label.hide()
+            w.work_label.hide()
+            w.affection_label.hide()
         if getattr(self, "_tray_toggle_action", None):
             self._tray_toggle_action.setText("显示桌宠" if not show else "隐藏桌宠")
 

@@ -209,6 +209,14 @@ check("status label back under pet after restore",
       (pet.status_label.y(), pet.y() + pet.height()))
 check("status label centered under pet",
       abs((pet.status_label.x() + pet.status_label.width() / 2) - (pet.x() + pet.width() / 2)) <= 1)
+check("work label sits right of status label",
+      pet.work_label.x() > pet.status_label.x()
+      and pet.work_label.y() == pet.status_label.y(),
+      (pet.work_label.x(), pet.status_label.x(), pet.work_label.y()))
+check("affection label sits left of status group",
+      pet.affection_label.x() < pet.status_label.x()
+      and pet.affection_label.y() == pet.status_label.y(),
+      (pet.affection_label.x(), pet.status_label.x(), pet.affection_label.y()))
 cfg.set("pet_interact_image", wide_saved or "")
 pet._play_interact_once()
 app.processEvents()
@@ -250,6 +258,138 @@ for _ in range(30):
 check("retry after watchdog succeeds", got and balances8[-1].startswith("¥"), balances8)
 check("polling released after success", m2._polling is False and m2._timeouts == 0)
 
+# 13. 好感度系统：摸头增加 / 随时间衰减 / 档位切换触发
+from affection import AffectionSystem  # noqa: E402
+
+cfg_aff = Config(os.path.join(tmp, "config_affection.json"))
+cfg_aff.set("affection_initial", 70)
+cfg_aff.set("affection_max", 100)
+cfg_aff.set("affection_gain", 10)
+cfg_aff.set("affection_decay_sec", 300)
+cfg_aff.set("affection_high_threshold_pct", 80)
+cfg_aff.set("affection_low_threshold_pct", 40)
+cfg_aff.set("affection_value", 70.0)
+cfg_aff.set("affection_last_update", 0.0)
+
+clock = {"t": 1000.0}
+aff_tiers = []
+aff_vals = []
+aff = AffectionSystem(cfg_aff, mono_fn=lambda: clock["t"])
+aff.tierChanged.connect(aff_tiers.append)
+aff.valueChanged.connect(aff_vals.append)
+check("affection initial value", aff.value() == 70.0 and aff.tier() == "mid")
+
+clock["t"] += 1
+aff.note_pet()  # 摸头一次 +10 -> 80，进入 high 档
+check("affection pet gains and enters high",
+      aff.value() == 80.0 and aff.tier() == "high", (aff.value(), aff.tier()))
+check("affection tier signal on pet", "high" in aff_tiers, aff_tiers)
+check("affection value signal on pet", 80.0 in aff_vals, aff_vals)
+
+clock["t"] += 300  # 5 分钟未互动：下降 1 点，离开 high 档回到 mid
+aff._on_tick()
+check("affection decays after idle", aff.value() == 79.0 and aff.tier() == "mid",
+      (aff.value(), aff.tier()))
+check("affection tier signal on decay", "mid" in aff_tiers, aff_tiers)
+
+clock["t"] += 1200  # 再 20 分钟：共下降 4 点 -> 75
+aff._on_tick()
+check("affection decay batches by interval", aff.value() == 75.0, aff.value())
+
+clock["t"] += 9000  # 2.5 小时：下降 30 点 -> 45（仍在 mid）
+aff._on_tick()
+check("affection decay floors at zero", aff.value() >= 0.0 and aff.tier() == "mid",
+      (aff.value(), aff.tier()))
+
+# 低好感：持续不摸头直到跌破低阈值 -> low
+cfg_aff.set("affection_value", 39.0)
+cfg_aff.set("affection_last_update", 0.0)
+aff.apply_config()
+check("affection low tier from config reload", aff.tier() == "low",
+      (aff.value(), aff.tier()))
+
+# 摸头语录分档：高好感优先 [high] 池，低好感优先 [low] 池，未知档回退 neutral
+import json as _json  # noqa: E402
+from main import pick_head_quote  # noqa: E402
+
+head_aff = os.path.join(tmp, "head_aff.json")
+_json.dump([
+    "[high] 被摸头最幸福了！",
+    "[low] 等了好久的摸摸！",
+    "普通的摸头回应。",
+], open(head_aff, "w", encoding="utf-8"), ensure_ascii=False)
+check("head quote picks high pool",
+      pick_head_quote(head_aff, [], tier="high") == "被摸头最幸福了！")
+check("head quote picks low pool",
+      pick_head_quote(head_aff, [], tier="low") == "等了好久的摸摸！")
+check("head quote falls back to neutral",
+      pick_head_quote(head_aff, [], tier="mid") == "普通的摸头回应。")
+check("head quote legacy plain list",
+      pick_head_quote("", ["旧语录兜底"], tier="low") == "旧语录兜底")
+
+# 工作状态标签三态：降低=工作中，不变=空闲中，升高=充值了
+from pet_window import WorkingStatusLabel  # noqa: E402
+
+work_pet = PetWindow(cfg_aff, default_image=normal_png)
+wlab = work_pet.work_label
+wlab.set_state("down")
+check("work label shows working on balance down", wlab.text() == "工作中", wlab.text())
+# 保持期内 flat 不切回空闲（新语义）；过期后由专门的保持期测试覆盖
+wlab._last_down = _time.monotonic() - 9999
+wlab.set_state("flat")
+check("work label shows idle on balance flat (after hold)", wlab.text() == "空闲中", wlab.text())
+wlab.set_state("up")
+check("work label shows recharge on balance up", wlab.text() == "充值了", wlab.text())
+wlab.set_state("unknown")
+check("work label unknown before first fetch", wlab.text() == "余额未知", wlab.text())
+
+# 14. 工作状态保持期：余额下降后 3 分钟内 flat 不切回"空闲中"
+import time as _time2  # noqa: E402
+
+work_hold = PetWindow(cfg_aff, default_image=normal_png).work_label
+work_hold.set_hold_sec(180)
+work_hold.set_state("down")
+check("work hold: down -> 工作中", work_hold.text() == "工作中", work_hold.text())
+# 模拟 60 秒后 flat：保持期内应维持"工作中"
+work_hold._last_down = _time2.monotonic() - 60
+work_hold.set_state("flat")
+check("work hold: flat within hold keeps 工作中", work_hold.text() == "工作中", work_hold.text())
+check("work hold: in_working_hold true", work_hold.in_working_hold() is True)
+# 模拟 200 秒后 flat：超过保持期，允许切回"空闲中"
+work_hold._last_down = _time2.monotonic() - 200
+work_hold.set_state("flat")
+check("work hold: flat after hold switches to 空闲中", work_hold.text() == "空闲中", work_hold.text())
+check("work hold: in_working_hold false", work_hold.in_working_hold() is False)
+# 语录侧：保持期内 flat 不触发"空闲中"语录（独立实例验证）
+import json as _json2  # noqa: E402
+
+talk_hold = os.path.join(tmp, "talk_hold.json")
+_json2.dump([
+    "[work_flat] 余额纹丝不动，主人正在享受悠闲时光～",
+    "[work_down] 余额一路向下，主人的干劲一路向上～",
+], open(talk_hold, "w", encoding="utf-8"), ensure_ascii=False)
+t_hold = main_mod.SelfTalkMonitor(cfg2, talk_hold)
+said_hold = []
+t_hold.talk.connect(said_hold.append)
+t_hold._mono_fn = lambda: 30_000_000.0
+t_hold.on_balance_change("down")
+check("work hold: down quote fires", any("余额一路向下" in x for x in said_hold), said_hold)
+t_hold.on_balance_change("flat", working_hold=True)
+check("work hold: flat quote suppressed during hold",
+      not any("余额纹丝不动" in x for x in said_hold), said_hold)
+t_hold._last_work_quote["flat"] = 0.0  # 清冷却
+t_hold.on_balance_change("flat", working_hold=False)
+check("work hold: flat quote fires after hold",
+      any("余额纹丝不动" in x for x in said_hold), said_hold)
+
+# 设置页好感/状态控件
+dlg_aff = SettingsDialog(cfg_aff)
+check("settings has affection controls",
+      hasattr(dlg_aff, "aff_check") and dlg_aff.aff_gain.value() == 10
+      and dlg_aff.work_label_check.isChecked())
+check("settings has work hold control", hasattr(dlg_aff, "work_hold_spin")
+      and dlg_aff.work_hold_spin.value() == 180, dlg_aff.work_hold_spin.value())
+
 # 10. 自言自语情境触发：显式时段标签 / 分类 / 健康 / 求关注 / 余额变动
 import json as _json  # noqa: E402
 from datetime import datetime as _dt  # noqa: E402
@@ -262,6 +402,9 @@ _json.dump([
     "记得喝水哦，主人。",
     "主人，摸摸我嘛～",
     "余额稳稳的，安全感满满～",
+    "[work_down] 余额一路向下，主人的干劲一路向上～",
+    "[work_flat] 余额纹丝不动，主人正在享受悠闲时光～",
+    "[work_up] 余额上涨啦！是主人充值了！钱包辛苦了～",
     "普通随机话语。",
     "[time] 周末愉快，今天有什么安排吗？",   # 旧写法兼容：按内容细分到 weekend
     "[sunny] 阳光真好，适合出去走走。",
@@ -281,12 +424,18 @@ check("classify legacy [time] -> weekend", any("周末愉快" in x for x in t10.
 check("classify health", any("喝水" in x for x in t10._pools.get("health", [])))
 check("classify attention", any("摸摸" in x for x in t10._pools.get("attention", [])))
 check("classify balance", any("余额" in x for x in t10._pools.get("balance", [])))
+check("classify work_down", any("余额一路向下" in x for x in t10._pools.get("work_down", [])))
+check("classify work_flat", any("余额纹丝不动" in x for x in t10._pools.get("work_flat", [])))
+check("classify work_up", any("主人充值了" in x for x in t10._pools.get("work_up", [])))
 check("classify random", "普通随机话语。" in t10._pools.get("random", []))
 check("classify [sunny]", any("阳光真好" in x for x in t10._pools.get("weather_sunny", [])))
 check("classify [rainy]", any("出门记得带伞" in x for x in t10._pools.get("weather_rainy", [])))
 check("classify [windy]", any("多穿一件" in x for x in t10._pools.get("weather_windy", [])))
 check("weather pools stay separate from random",
       "阳光真好" not in t10._pools.get("random", []) and "weather" in t10._pools)
+check("affection pools exist and stay silent when empty",
+      all(x in t10._pools for x in ("affection_high", "affection_mid", "affection_low"))
+      and t10._pick("affection_high") is None)
 
 # 时段窗口：清晨 8 点触发 morning；下午 14 点触发 afternoon；深夜 23:30 触发 midnight
 t10._now_fn = lambda: _dt(2026, 8, 30, 8, 0)
@@ -323,6 +472,30 @@ t10.on_balance_change()
 check("balance quote fired on change", any("余额稳稳" in x for x in said))
 t10.on_balance_change()
 check("balance quote throttled", len([x for x in said if "余额稳稳" in x]) == 1)
+
+# 工作状态语录：余额降低/不变/升高分别触发，各自冷却
+said_before_work = len(said)
+t10.balance_chance = 0.0  # 隔离余额语录概率，专注工作状态触发
+t10._mono_fn = lambda: 20_000_000.0
+t10.on_balance_change("down")
+check("work_down fires when balance decreases", any("余额一路向下" in x for x in said), said)
+count_work_down = len([x for x in said if "余额一路向下" in x])
+t10.on_balance_change("down")
+check("work_down throttled", len([x for x in said if "余额一路向下" in x]) == count_work_down)
+t10.on_balance_change("flat")
+check("work_flat fires when balance unchanged", any("余额纹丝不动" in x for x in said), said)
+t10.on_balance_change("up")
+check("work_up fires when balance rises", any("主人充值了" in x for x in said), said)
+check("balance quotes untouched by work quotes",
+      len([x for x in said if "余额稳稳" in x]) == 1)
+
+# 好感档位语录：on_affection_tier 映射到对应标签
+said_before_tier = len(said)
+t10.on_affection_tier("high")
+check("affection tier emits tag", len(said) == said_before_tier)  # 空池静默
+t10._pools["affection_high"] = ["被主人宠着的感觉真好！"]
+t10.on_affection_tier("high")
+check("affection_high quote fires", any("被主人宠着" in x for x in said), said)
 
 # 天气触发：同一天气每天至多一次，换天气触发不同文本，空池回退通用天气池
 t10.set_weather("sunny")

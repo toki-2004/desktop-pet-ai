@@ -21,6 +21,7 @@ class BalanceMonitor(QObject):
     balanceUpdated = pyqtSignal(float, str)  # 总额, 显示文本
     balanceUp = pyqtSignal(str)              # 增加动画文本
     balanceDown = pyqtSignal(str)            # 减少动画文本
+    balanceFlat = pyqtSignal(str)            # 不变（无动画文本，仅方向）
     fetchError = pyqtSignal(str)
 
     # requests 的 timeout 不覆盖域名解析（getaddrinfo 无超时）：DNS 被拦截/
@@ -100,6 +101,7 @@ class BalanceMonitor(QObject):
             petlog.log("balance fetch ok: %s (emit from thread %s)" % (text, threading.get_ident()))
             if self._last_total is None or abs(total - self._last_total) < 0.005:
                 self.balanceUpdated.emit(total, text)
+                self.balanceFlat.emit(text)
             elif total > self._last_total:
                 self.balanceUpdated.emit(total, text)
                 self.balanceUp.emit("+¥%.2f" % (total - self._last_total))

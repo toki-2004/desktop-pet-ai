@@ -6,6 +6,7 @@ import os
 import threading
 import sys
 import ctypes
+import time
 
 from PyQt5.QtCore import Qt, QPoint, QSize, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
 from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageReader
@@ -200,6 +201,166 @@ class StatusLabel(QLabel):
         p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
 
 
+class WorkingStatusLabel(QLabel):
+    """工作状态标签（独立置顶小窗口）：以余额升降作为判定标准。
+
+    余额降低 = 正在工作（烧余额）-> "工作中"（琥珀色系）；
+    余额不变 = 没在工作 -> "空闲中"（灰色系）；
+    余额升高 = 充值 -> "充值了"（绿色系）；
+    未取得数据 -> "余额未知"（深灰系）。文本与配色均可由 config 定制。
+    """
+
+    def __init__(self, config, parent=None):
+        super().__init__(
+            None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
+        self.config = config
+        self.pet_window = parent
+        self._state = "unknown"
+        self._last_down = 0.0      # monotonic：最近一次余额下降时刻（保持期基准）
+        self._hold_sec = 180.0     # 余额下降后保持"工作中"的秒数（默认 3 分钟）
+        self.setText(self.config.get("work_unknown_text", "余额未知") or "余额未知")
+        self._apply_style()
+
+    def set_top_flag(self, on):
+        set_topmost_flag(self, on)
+
+    def set_hold_sec(self, seconds):
+        """余额下降后保持"工作中"的时长（配置热更新入口）。"""
+        try:
+            self._hold_sec = max(0.0, float(seconds))
+        except (TypeError, ValueError):
+            self._hold_sec = 180.0
+
+    def in_working_hold(self):
+        """是否处于"余额下降后的保持期"：是则 flat 信号应维持"工作中"。"""
+        return self._state == "down" and time.monotonic() - self._last_down < self._hold_sec
+
+    def set_state(self, state):
+        """state: "up"（充值）/ "down"（工作中）/ "flat"（空闲中）/ "unknown"。"""
+        state = state if state in ("up", "down", "flat") else "unknown"
+        if state == "down":
+            self._last_down = time.monotonic()
+        # 保持期判定要在更新 _last_down 之后、状态切换之前做，
+        # 否则刚收到的 down 事件会把旧的 flat 也当成"保持期内"拦掉
+        if state == "flat" and self.in_working_hold():
+            # 余额同步往往没那么快：下降后保持期内不切回"空闲中"
+            return
+        if state == self._state and self.text():
+            return
+        self._state = state
+        if state == "up":
+            self.setText(self.config.get("work_up_text", "充值了") or "充值了")
+        elif state == "down":
+            self.setText(self.config.get("work_down_text", "工作中") or "工作中")
+        elif state == "flat":
+            self.setText(self.config.get("work_flat_text", "空闲中") or "空闲中")
+        else:
+            self.setText(self.config.get("work_unknown_text", "余额未知") or "余额未知")
+        self._apply_style()
+
+    def _apply_style(self):
+        fs = int(self.config.get("balance_font_size", 14) or 14)
+        font = self.font()
+        font.setPointSize(max(9, fs - 2))
+        font.setBold(True)
+        self.setFont(font)
+        self.resize(max(24, self.sizeHint().width() + 16),
+                    max(18, self.sizeHint().height() + 6))
+        self.update()
+        if self.pet_window is not None:
+            self.pet_window._place_work()
+
+    # 配色：充值=绿色系，工作中=琥珀色系，空闲中=灰色系，未知=深灰系
+    PALETTE = {
+        "up": {"border": QColor("#27AE60"), "text": QColor("#1E7B4F"), "fill": QColor(39, 174, 96, 34)},
+        "down": {"border": QColor("#E67E22"), "text": QColor("#C65E0E"), "fill": QColor(230, 126, 34, 34)},
+        "flat": {"border": QColor("#95A5A6"), "text": QColor("#6B7B7C"), "fill": QColor(149, 165, 166, 32)},
+        "unknown": {"border": QColor("#5D6D7E"), "text": QColor("#34495E"), "fill": QColor(93, 109, 126, 32)},
+    }
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        c = self.PALETTE[self._state]
+        p.setPen(QPen(c["border"], 1))
+        p.setBrush(c["fill"])
+        p.drawRoundedRect(rect, 8, 8)
+        p.setPen(c["text"])
+        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
+
+
+class AffectionLabel(QLabel):
+    """好感标签（独立置顶小窗口）：常态显示当前好感值与档位配色。
+
+    与时段/工作状态标签同一层级，跟随 always_on_top 与桌宠显隐。
+    """
+
+    def __init__(self, config, parent=None):
+        super().__init__(
+            None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
+        self.config = config
+        self.pet_window = parent
+        self._value = 0.0
+        self.setText("好感 …")
+        self._apply_style()
+
+    def set_top_flag(self, on):
+        set_topmost_flag(self, on)
+
+    def set_affection(self, value):
+        try:
+            self._value = float(value)
+        except (TypeError, ValueError):
+            self._value = 0.0
+        self._apply_style()
+
+    def _apply_style(self):
+        fs = int(self.config.get("balance_font_size", 14) or 14)
+        font = self.font()
+        font.setPointSize(max(9, fs - 2))
+        font.setBold(True)
+        self.setFont(font)
+        self.setText("好感 %d" % int(round(self._value)))
+        self.resize(max(24, self.sizeHint().width() + 16),
+                    max(18, self.sizeHint().height() + 6))
+        self.update()
+        if self.pet_window is not None:
+            self.pet_window._place_affection()
+
+    # 好感档位配色：高=粉色系，中=蓝色系，低=灰蓝色系
+    PALETTE = {
+        "high": {"border": QColor("#E91E8C"), "text": QColor("#C2185B"), "fill": QColor(233, 30, 140, 34)},
+        "mid": {"border": QColor("#3D8BFF"), "text": QColor("#1E5FC4"), "fill": QColor(61, 139, 255, 34)},
+        "low": {"border": QColor("#78909C"), "text": QColor("#546E7A"), "fill": QColor(120, 144, 156, 34)},
+    }
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        max_v = int(self.config.get("affection_max", 100) or 100)
+        try:
+            max_v = float(max_v)
+        except (TypeError, ValueError):
+            max_v = 100.0
+        low = float(self.config.get("affection_low_threshold_pct", 40) or 40) / 100.0 * max_v
+        high = float(self.config.get("affection_high_threshold_pct", 80) or 80) / 100.0 * max_v
+        tier = "high" if self._value >= high else ("low" if self._value < low else "mid")
+        c = self.PALETTE[tier]
+        p.setPen(QPen(c["border"], 1))
+        p.setBrush(c["fill"])
+        p.drawRoundedRect(rect, 8, 8)
+        p.setPen(c["text"])
+        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
+
+
 class PetWindow(QWidget):
     toggleBalanceRequested = pyqtSignal(bool)
     bindAccountRequested = pyqtSignal()
@@ -244,6 +405,9 @@ class PetWindow(QWidget):
         self.balance_label.setText("余额…")  # 首次拉取前的占位，避免空白圆角框
         self.balance_label.hide()
         self.status_label = StatusLabel(config, self)
+        self.work_label = WorkingStatusLabel(config, self)
+        self.work_label.set_hold_sec(self.config.get("work_state_hold_sec", 180))
+        self.affection_label = AffectionLabel(config, self)
 
         self.apply_config()
 
@@ -263,8 +427,13 @@ class PetWindow(QWidget):
         # 时段状态常态显示：文案可被 config 自定义，这里同步刷新并随窗口显示
         self.status_label.set_state(is_peak())
         self.status_label._apply_style()  # 字号跟随 balance_font_size（-2），设置改动后强制刷新
+        self.work_label.set_hold_sec(self.config.get("work_state_hold_sec", 180))
         self._place_status()
         self.status_label.show()
+        self.work_label.setVisible(bool(self.config.get("work_label_enabled", True)))
+        self.work_label._apply_style()
+        self.affection_label.setVisible(bool(self.config.get("affection_label_enabled", True)))
+        self.affection_label._apply_style()
 
     def _apply_top_flag(self):
         """同步置顶开关：桌宠、余额文本、时段状态、已有浮动字一起切换。"""
@@ -272,6 +441,8 @@ class PetWindow(QWidget):
         set_topmost_flag(self, on)
         self.balance_label.set_top_flag(on)
         self.status_label.set_top_flag(on)
+        self.work_label.set_top_flag(on)
+        self.affection_label.set_top_flag(on)
         for lab in list(self._floats):
             set_topmost_flag(lab, on)
 
@@ -391,6 +562,30 @@ class PetWindow(QWidget):
         rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
         x = rect.x() + max(0, (rect.width() - label.width()) // 2)
         label.move(x, rect.y() + rect.height())
+        self._place_work()
+
+    def _place_work(self):
+        """工作状态标签：以时段标签当前位置为基准，紧贴其右侧同一行。
+
+        独立定位（不依赖 _place_status 重算），保证状态标签在
+        冻结/播放/恢复等路径归位时，工作标签始终跟随。
+        """
+        status = getattr(self, "status_label", None)
+        work = getattr(self, "work_label", None)
+        if status is None or work is None or not work.isVisible():
+            return
+        gap = 6
+        work.move(status.x() + status.width() + gap, status.y())
+        self._place_affection()
+
+    def _place_affection(self):
+        """好感标签：紧贴时段/工作状态组的左侧同一行。"""
+        status = getattr(self, "status_label", None)
+        aff = getattr(self, "affection_label", None)
+        if status is None or aff is None or not aff.isVisible():
+            return
+        gap = 6
+        aff.move(status.x() - aff.width() - gap, status.y())
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):
