@@ -109,9 +109,10 @@ class BalanceLabel(QLabel):
             fs = max(8, min(30, int(round(self._current_fs() * factor))))
             self.config.set("balance_font_size", fs)
             self._apply_style()
-            # 状态标签字号跟随全局字号（-2）：滚轮入口也要同步刷新（2026-08-30 修复）
+            # 状态/工作/好感标签字号跟随全局字号（-2）：滚轮入口走统一刷新出口，
+            # 三个标签一起同步，避免只刷了时段标签、工作/好感标签尺寸滞后
             if self.pet_window is not None:
-                self.pet_window.status_label._apply_style()
+                self.pet_window._refresh_status_group()
         event.accept()
 
     def mousePressEvent(self, event):
@@ -422,18 +423,16 @@ class PetWindow(QWidget):
         self._apply_balance_style()
         self.balance_label.setVisible(bool(self.config.get("show_balance", True)))
         self._place_balance()
-        self._place_status()
         self._apply_top_flag()
         # 时段状态常态显示：文案可被 config 自定义，这里同步刷新并随窗口显示
         self.status_label.set_state(is_peak())
-        self.status_label._apply_style()  # 字号跟随 balance_font_size（-2），设置改动后强制刷新
         self.work_label.set_hold_sec(self.config.get("work_state_hold_sec", 180))
-        self._place_status()
         self.status_label.show()
         self.work_label.setVisible(bool(self.config.get("work_label_enabled", True)))
-        self.work_label._apply_style()
         self.affection_label.setVisible(bool(self.config.get("affection_label_enabled", True)))
-        self.affection_label._apply_style()
+        # 统一刷新出口：字号跟随 balance_font_size（-2），任何入口
+        # （滚轮/设置保存/隐藏-显示）都走这里，三个标签尺寸同步
+        self._refresh_status_group()
 
     def _apply_top_flag(self):
         """同步置顶开关：桌宠、余额文本、时段状态、已有浮动字一起切换。"""
@@ -551,6 +550,24 @@ class PetWindow(QWidget):
             dx = label.width() and (self.width() - label.width() - 6) or 6
             dy = 6
         label.move(self.x() + dx, self.y() + dy)
+
+    def _refresh_status_group(self):
+        """状态/工作/好感三个标签的统一刷新出口（字号/框体尺寸/位置）。
+
+        每个入口（滚轮调字号、设置保存、隐藏-显示桌宠、配置迁移）都必须走
+        这里，不能只刷新其中一两个标签，否则会出现字号已变但框体尺寸滞后的
+        不同步现象（2026-08-31 修复）。三个标签按依赖顺序刷新：
+        状态标签先定位，工作标签跟随其右侧，好感标签跟随其左侧。
+        """
+        status = getattr(self, "status_label", None)
+        work = getattr(self, "work_label", None)
+        aff = getattr(self, "affection_label", None)
+        if status is not None:
+            status._apply_style()
+        if work is not None:
+            work._apply_style()
+        if aff is not None:
+            aff._apply_style()
 
     def _place_status(self):
         # 时段状态放在桌宠正下部（用户指定）：文本框上缘紧贴桌宠窗口下缘，水平居中。

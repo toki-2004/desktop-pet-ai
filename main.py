@@ -95,15 +95,15 @@ def _input_idle_seconds():
 
 
 def pick_head_quote(head_file, fallback_texts, tier="mid"):
-    """按好感档位挑选摸头语录：档位池 -> 未标档位（neutral）池 -> 全部兜底。
+    """按好感档位挑选摸头语录：档位池 -> 通用（neutral）池 -> 全部兜底。
 
-    语录支持 [high] / [low] 前缀（仅这两档有专属池，中间档用 neutral），
-    无前缀的语录任何档位都可使用。
+    语录支持 [high] / [low] / [neutral] 前缀：前两档有专属池，
+    中间档及任何档位通用语录标 [neutral]；无前缀的旧语录按 neutral 处理。
     """
     texts = load_quote_file(head_file, fallback_texts)
     pools = {"high": [], "low": [], "neutral": []}
     for t in texts:
-        m = re.match(r"^\[(high|low)\]\s*(.*)$", t)
+        m = re.match(r"^\[(high|low|neutral)\]\s*(.*)$", t)
         if m:
             pools[m.group(1)].append(m.group(2).strip())
         else:
@@ -121,8 +121,10 @@ class SelfTalkMonitor(QObject):
     """情境自言自语：按语录内容自动分类，用不同的触发方式呈现。
 
     触发方式（按内容关键词自动归类；也可在语录前加 [标签] 前缀强制指定，
-    显示时自动去掉前缀，如 "[time] 早安主人，新的一天也要加油哦～"）：
-      [time]      时点问候：进入对应时间段后当天触发一次（早安/午饭/下午茶/夜晚/周末）
+    显示时自动去掉前缀，如 "[morning] 早安主人，新的一天也要加油哦～"；
+    旧写法 "[time] …" 按内容关键词细分到具体时段）：
+      [morning]/[noon]/[afternoon]/[evening]/[midnight]/[weekend]
+                  时点问候：进入对应时间段后当天触发一次（清晨/午饭/下午茶/夜晚/深夜/周末）
       [health]    健康提醒：键鼠闲置满 45 分钟触发一次（久坐/喝水/活动/护眼）
       [attention] 求关注：超过 90 分钟没有摸头/单击互动时触发
       [balance]   余额变动：余额增减事件后概率触发（每小时至多一次）
@@ -134,8 +136,11 @@ class SelfTalkMonitor(QObject):
       [affection_low]   好感度低（低于低阈值）时触发
       [sunny]/[cloudy]/[rainy]/[snowy]/[foggy]/[windy]/[stormy]
                   天气触发：按本机位置实时天气触发，同一天气每天至多一次；
-                  [weather] 为通用天气池（具体天气池为空时回退到这里）
+      [weather] 为通用天气池（具体天气池为空时回退到这里）
       [random]    随机闲聊：按设置的间隔随机触发（原有行为）
+
+    预设文本库（assets/*.json 与根目录副本）按每个标签各 100 条维护，
+    所有条目都必须带显式标签，避免运行时关键词分类产生歧义。
     """
 
     talk = pyqtSignal(str)

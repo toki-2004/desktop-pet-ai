@@ -326,6 +326,11 @@ check("head quote falls back to neutral",
       pick_head_quote(head_aff, [], tier="mid") == "普通的摸头回应。")
 check("head quote legacy plain list",
       pick_head_quote("", ["旧语录兜底"], tier="low") == "旧语录兜底")
+head_neutral = os.path.join(tmp, "head_neutral.json")
+_json.dump(["[neutral] 中立的摸头回应。"],
+           open(head_neutral, "w", encoding="utf-8"), ensure_ascii=False)
+check("head quote explicit [neutral] honored",
+      pick_head_quote(head_neutral, [], tier="mid") == "中立的摸头回应。")
 
 # 工作状态标签三态：降低=工作中，不变=空闲中，升高=充值了
 from pet_window import WorkingStatusLabel  # noqa: E402
@@ -590,6 +595,20 @@ check("wheel scales balance font", fs_wheel > 16, fs_wheel)
 check("wheel syncs status label font",
       pet_f.status_label.font().pointSize() == max(9, fs_wheel - 2),
       (fs_wheel, pet_f.status_label.font().pointSize()))
+# 滚轮调字号：工作/好感标签也必须同步刷新（曾漏掉这两个入口，
+# 只有摸头/隐藏-显示桌宠等事件才顺带刷新的不同步 bug，2026-08-31 修复）
+check("wheel syncs work label font",
+      pet_f.work_label.font().pointSize() == max(9, fs_wheel - 2),
+      (fs_wheel, pet_f.work_label.font().pointSize()))
+check("wheel syncs affection label font",
+      pet_f.affection_label.font().pointSize() == max(9, fs_wheel - 2),
+      (fs_wheel, pet_f.affection_label.font().pointSize()))
+check("wheel resizes work label to content",
+      pet_f.work_label.width() == max(24, pet_f.work_label.sizeHint().width() + 16),
+      (pet_f.work_label.width(), pet_f.work_label.sizeHint().width()))
+check("wheel resizes affection label to content",
+      pet_f.affection_label.width() == max(24, pet_f.affection_label.sizeHint().width() + 16),
+      (pet_f.affection_label.width(), pet_f.affection_label.sizeHint().width()))
 
 # 12. 天气：WMO 分类映射 + 看门狗（模拟 DNS 挂死）
 from weather import classify as _wclass  # noqa: E402
@@ -632,6 +651,37 @@ for _ in range(60):
     QTimer.singleShot(150, loop_w2.quit)
     loop_w2.exec_()
 check("weather retry succeeds after watchdog", got_w and "sunny" in kinds_w, kinds_w)
+
+# 预设库完整性：每个标签 100 条、全部带显式标签（2026-08-31 扩充）
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+assets_self_path = os.path.join(root_dir, "assets", "self_talk_quotes.json")
+with open(assets_self_path, encoding="utf-8") as _f:
+    assets_self = _json.load(_f)
+check("assets self-talk every entry tagged",
+      all(str(t).lstrip().startswith("[") for t in assets_self))
+t_assets = main_mod.SelfTalkMonitor(
+    Config(os.path.join(tmp, "preset_cfg.json")), assets_self_path)
+t_assets._load_texts()
+check("assets self-talk every tag has 100 entries",
+      len(t_assets._pools) == 24
+      and all(len(v) == 100 for v in t_assets._pools.values()),
+      {k: len(v) for k, v in t_assets._pools.items()})
+assets_head_path = os.path.join(root_dir, "assets", "pet_head_quotes.json")
+with open(assets_head_path, encoding="utf-8") as _f:
+    assets_head = _json.load(_f)
+check("assets pet-head every entry tagged",
+      all(str(t).lstrip().startswith("[") for t in assets_head))
+import re as _re_head  # noqa: E402
+
+_head_counts = {"high": 0, "low": 0, "neutral": 0}
+for _t in assets_head:
+    _mm = _re_head.match(r"^\[(high|low|neutral)\]", str(_t).lstrip())
+    if _mm:
+        _head_counts[_mm.group(1)] += 1
+check("assets pet-head every tag has 100 entries",
+      sum(_head_counts.values()) == len(assets_head)
+      and all(v == 100 for v in _head_counts.values()),
+      _head_counts)
 
 print("")
 print("RESULT: {} passed, {} failed".format(passed, len(failed)))
