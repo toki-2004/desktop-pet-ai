@@ -21,3 +21,4 @@ config.json.bak
 config.json.broken
 config.json.tmp
 pet_debug.log
+chat_history.json
