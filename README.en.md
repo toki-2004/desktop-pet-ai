@@ -47,7 +47,16 @@ zero-cost chatting with no API key at all.
 
 ## Screenshots
 
-(To be added: pet appearance / chat example / settings page)
+<p align="center">
+  <img src="assets/screenshots/appearance.png" alt="Pet appearance with side-by-side labels" width="320"/>
+  <img src="assets/screenshots/chat.png" alt="AI chat with the pet" width="320"/>
+  <br/>
+  <img src="assets/screenshots/ai_settings.png" alt="AI settings page" width="520"/>
+</p>
+
+Left to right: the pet with its affection / period / work-status labels side by
+side, an AI chat with the pet, and the AI settings page (provider presets with
+an auto-fetched model list).
 
 ## Getting started
 

@@ -33,7 +33,15 @@
 
 ## 截图
 
-（图片待补充：桌宠外观 / 聊天示例 / 设置页）
+<p align="center">
+  <img src="assets/screenshots/appearance.png" alt="桌宠外观（三个并排标签）" width="320"/>
+  <img src="assets/screenshots/chat.png" alt="与桌宠的 AI 聊天" width="320"/>
+  <br/>
+  <img src="assets/screenshots/ai_settings.png" alt="AI 设置页" width="520"/>
+</p>
+
+从左到右：桌宠外观（好感 / 时段 / 工作状态标签并排）、与桌宠的 AI 聊天、
+AI 设置页（厂商预设 + 自动模型列表）。
 
 ## 使用方式
 
