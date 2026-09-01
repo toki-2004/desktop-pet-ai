@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""桌宠核心入口：透明置顶桌宠 + 思考云线通知 + DeepSeek 余额 + 高峰/空闲提醒。"""
+"""桌宠核心入口（AI 版）：透明置顶桌宠 + AI 生成文本 + 情境触发 + 聊天输入。"""
 import json
 import os
 import random
@@ -20,11 +20,12 @@ import petlog
 petlog.install_excepthooks()
 from pet_window import PetWindow
 from balloon import ThinkingBalloon
-from balance import BalanceMonitor
 from scheduler import ScheduleMonitor
 from settings_dialog import SettingsDialog
 from weather import WeatherMonitor
 from affection import AffectionSystem
+from ai_client import AIClient
+from chat_history import ChatHistory, HistoryDialog
 import autostart
 
 FROZEN = bool(getattr(sys, "frozen", False))
@@ -38,43 +39,6 @@ else:
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.json")
 DEFAULT_IMAGE = os.path.join(BUNDLE_DIR, "assets", "deepseek拟人.png")
 DEFAULT_INTERACT = os.path.join(BUNDLE_DIR, "assets", "ds摸头.gif")
-DEFAULT_SELF_TALK_QUOTES = os.path.join(BUNDLE_DIR, "assets", "self_talk_quotes.json")
-DEFAULT_PET_HEAD_QUOTES = os.path.join(BUNDLE_DIR, "assets", "pet_head_quotes.json")
-
-
-def load_txt_lines(path):
-    """读取旧版每行一条的文本库。"""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return [line.strip() for line in f if line.strip()]
-    except Exception:
-        return []
-
-
-def write_json_quotes(path, texts):
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump([t for t in texts if str(t).strip()], f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-
-def load_quote_file(path, fallback):
-    """读取 JSON 语录库（数组）；兼容旧 txt 格式；均失败时回退默认文本。"""
-    if path and os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                texts = [str(t).strip() for t in data if str(t).strip()]
-                if texts:
-                    return texts
-        except Exception:
-            pass
-        lines = load_txt_lines(path)
-        if lines:
-            return lines
-    return [str(t).strip() for t in (fallback or []) if str(t).strip()]
 
 
 def _input_idle_seconds():
@@ -94,78 +58,12 @@ def _input_idle_seconds():
     return 0.0
 
 
-def pick_head_quote(head_file, fallback_texts, tier="mid"):
-    """按好感档位挑选摸头语录：档位池 -> 通用（neutral）池 -> 全部兜底。
-
-    语录支持 [high] / [low] / [neutral] 前缀：前两档有专属池，
-    中间档及任何档位通用语录标 [neutral]；无前缀的旧语录按 neutral 处理。
-    """
-    texts = load_quote_file(head_file, fallback_texts)
-    pools = {"high": [], "low": [], "neutral": []}
-    for t in texts:
-        m = re.match(r"^\[(high|low|neutral)\]\s*(.*)$", t)
-        if m:
-            pools[m.group(1)].append(m.group(2).strip())
-        else:
-            pools["neutral"].append(t)
-    tier = tier if tier in ("high", "low") else "mid"
-    pool = pools.get(tier) or []
-    if not pool:
-        pool = pools["neutral"]
-    if not pool:
-        pool = texts
-    return random.choice(pool) if pool else ""
-
-
 class SelfTalkMonitor(QObject):
-    """情境自言自语：按语录内容自动分类，用不同的触发方式呈现。
+    """情境自言自语：触发逻辑同原版（时段/健康/求关注/好感/天气/随机），
+    命中标签后不再查语录库，而是发出 request_talk 信号，由 AI 生成文本。"""
 
-    触发方式（按内容关键词自动归类；也可在语录前加 [标签] 前缀强制指定，
-    显示时自动去掉前缀，如 "[morning] 早安主人，新的一天也要加油哦～"；
-    旧写法 "[time] …" 按内容关键词细分到具体时段）：
-      [morning]/[noon]/[afternoon]/[evening]/[midnight]/[weekend]
-                  时点问候：进入对应时间段后当天触发一次（清晨/午饭/下午茶/夜晚/深夜/周末）
-      [health]    健康提醒：键鼠闲置满 45 分钟触发一次（久坐/喝水/活动/护眼）
-      [attention] 求关注：超过 90 分钟没有摸头/单击互动时触发
-      [balance]   余额变动：余额增减事件后概率触发（每小时至多一次）
-      [work_down] 工作状态：余额降低 = 正在工作，触发一次"工作中"语录（有冷却）
-      [work_flat] 工作状态：余额不变 = 没在工作，触发一次"空闲中"语录（有冷却）
-      [work_up]   工作状态：余额升高 = 充值了，触发一次"充值"语录（有冷却）
-      [affection_high]  好感度高（达到高阈值）时触发
-      [affection_mid]   好感度回到中间档时触发
-      [affection_low]   好感度低（低于低阈值）时触发
-      [sunny]/[cloudy]/[rainy]/[snowy]/[foggy]/[windy]/[stormy]
-                  天气触发：按本机位置实时天气触发，同一天气每天至多一次；
-      [weather] 为通用天气池（具体天气池为空时回退到这里）
-      [random]    随机闲聊：按设置的间隔随机触发（原有行为）
+    request_talk = pyqtSignal(str)
 
-    预设文本库（assets/*.json 与根目录副本）按每个标签各 100 条维护，
-    所有条目都必须带显式标签，避免运行时关键词分类产生歧义。
-    """
-
-    talk = pyqtSignal(str)
-
-    KEYWORDS = {
-        "time": ("早安", "中午", "下午茶", "天黑", "夜深", "深夜", "周末", "夕阳",
-                 "晚安", "零点", "清晨", "晚饭"),
-        "health": ("久坐", "喝水", "伸懒腰", "眼睛", "肩", "健康", "揉肩", "走两步",
-                   "深呼吸", "三餐", "午饭", "吃饭", "站起来", "水杯", "活动", "保暖",
-                   "护眼", "休息眼睛"),
-        "balance": ("余额", "钱包", "支出", "账单"),
-        "work": ("代码", "Bug", "编译", "键盘", "工作", "效率", "保存", "产出"),
-        "weather": ("下雨", "阳光", "天气", "起风"),
-        "attention": ("摸摸", "陪聊", "想我", "点点我", "无聊", "聊聊天", "陪我"),
-        "game": ("游戏", "操作", "胜利"),
-    }
-    TIME_SUBTAG = (  # time 大类内部的时段细分（按内容关键词自动归类用）
-        (("早安", "清晨"), "morning"),
-        (("中午", "午饭"), "noon"),
-        (("下午", "下午茶"), "afternoon"),
-        (("天黑", "夕阳", "傍晚", "晚饭"), "evening"),
-        (("夜深", "深夜", "零点", "早点睡"), "midnight"),
-        (("周末",), "weekend"),
-    )
-    TIME_SUBTAGS = {"morning", "noon", "afternoon", "evening", "midnight", "weekend"}
     TIME_WINDOWS = [  # (起始时, 结束时, 池后缀)——全天连续覆盖，每段每天至多触发一次
         (5, 11, "time_morning"),
         (11, 14, "time_noon"),
@@ -177,17 +75,11 @@ class SelfTalkMonitor(QObject):
     WEEKEND_WINDOW = (9, 21)       # 周末白天
     IDLE_MINUTES = 45              # 闲置多久触发健康提醒
     ATTENTION_MINUTES = 90         # 多久没有互动触发求关注
-    BALANCE_CHANCE = 0.35          # 余额变动后触发余额语录的概率
-    BALANCE_THROTTLE_S = 3600      # 余额语录冷却
-    WORK_THROTTLE_S = 1800         # 工作状态语录冷却
     WEATHER_KINDS = ("sunny", "cloudy", "rainy", "snowy", "foggy", "windy", "stormy")
-    SILENT_IF_EMPTY = ("affection_high", "affection_mid", "affection_low")
 
-    def __init__(self, config, text_file):
+    def __init__(self, config):
         super().__init__()
         self.config = config
-        self.text_file = text_file
-        self._pools = {}
         self._timer = QTimer(self)          # random：随机闲聊
         self._timer.timeout.connect(self._fire_random)
         self._context_timer = QTimer(self)  # time/health/attention：情境检查
@@ -195,89 +87,19 @@ class SelfTalkMonitor(QObject):
         self._last_pat = 0.0      # monotonic：最近一次摸头/单击互动
         self._last_attention = 0.0
         self._last_health = 0.0
-        self._last_balance_quote = 0.0
-        self._last_work_quote = {"up": 0.0, "down": 0.0, "flat": 0.0}
         self._fired_rules = {}    # time 规则 -> 已触发日期
         self._fired_weather = {}   # 天气池 -> 已触发日期
         # 可注入（测试/外部调整）
         self._now_fn = datetime.now
         self._mono_fn = time.monotonic
         self._idle_fn = _input_idle_seconds
-        self.balance_chance = self.BALANCE_CHANCE
         self._schedule()
 
-    # ---------- 语录分类 ----------
-    def _classify(self, text):
-        """返回 (触发类别, 正文)。
-
-        [tag] 前缀强制指定类别；否则按关键词归类。time 大类必须细分到
-        具体时段（早安/午饭/...），细分不出则归入随机池——否则时段窗口
-        会从随机池抽到错时段的语录（如下午弹"夜深了"）。
-        """
-        text = str(text).strip()
-        m = re.match(r"^\[(\w+)\]\s*(.*)$", text)
-        forced = m.group(1).lower() if m else None
-        body = m.group(2) if m else text
-        if forced is not None:
-            if forced == "time":  # 兼容旧写法：按内容细分到具体时段
-                forced = self._time_subtag(body) or "random"
-            if forced in self.TIME_SUBTAGS:
-                return "time_" + forced, body
-            if forced in self.WEATHER_KINDS:
-                return "weather_" + forced, body
-            return forced, body
-        for t, kws in self.KEYWORDS.items():
-            if any(k in body for k in kws):
-                if t == "time":
-                    sub = self._time_subtag(body)
-                    return ("time_" + sub, body) if sub else ("random", body)
-                return t, body
-        return "random", body
-
-    def _time_subtag(self, body):
-        for kws, sub in self.TIME_SUBTAG:
-            if any(k in body for k in kws):
-                return sub
-        return None
-
-    def _load_texts(self):
-        texts = load_quote_file(self.text_file, self.config.get("self_talk_texts") or [])
-        self._pools = {}
-        for t in texts:
-            tag, body = self._classify(t)
-            self._pools.setdefault(tag, []).append(body)
-        # 无专属触发方式的内容池（work/game）并入随机闲聊轮换，
-        # 避免刚性打标后这些语录永远无法展示（weather 已升级为专属天气触发）
-        for tag in ("work", "game"):
-            extra = self._pools.pop(tag, [])
-            self._pools["random"] = self._pools.get("random", []) + extra
-        # 好感档位池必须有键（空池宁可沉默也不回退随机池）
-        for tag in self.SILENT_IF_EMPTY:
-            self._pools.setdefault(tag, [])
-        return len(texts)
-
-    def _pick(self, tag):
-        pool = self._pools.get(tag)
-        if not pool:
-            # 时段/好感子池为空时宁可沉默，也不回退随机池
-            # （时段回退会错配，如下午弹"夜深了"；好感回退会让档位语义失真）
-            if tag.startswith("time_") or tag in self.SILENT_IF_EMPTY:
-                return None
-            if tag.startswith("weather_"):
-                # 具体天气池为空时回退通用天气池（[weather]），再回退随机池
-                pool = self._pools.get("weather") or []
-            if not pool:
-                pool = self._pools.get("random") or []
-        return random.choice(pool) if pool else None
-
     def _emit_tag(self, tag):
-        """统一出口：总开关拦截 + 按类别取语录 + 发信号（去前缀后的正文）。"""
+        """统一出口：总开关拦截 + 发出情境标签（文本由 AI 生成）。"""
         if not bool(self.config.get("self_talk_enabled", True)):
             return False
-        text = self._pick(tag)
-        if not text:
-            return False
-        self.talk.emit(text)
+        self.request_talk.emit(tag)
         return True
 
     # ---------- 触发方式 ----------
@@ -320,27 +142,6 @@ class SelfTalkMonitor(QObject):
             if self._emit_tag("attention"):
                 self._last_attention = mono
 
-    def on_balance_change(self, direction=None, working_hold=False):
-        """余额变动事件后调用（direction: "up"/"down"/"flat"）。
-
-        任何变动都有概率触发余额类语录（有冷却）；direction 非空时
-        额外按方向触发工作状态语录（工作中/空闲中/充值了，各自冷却）；
-        working_hold=True 表示仍处于"余额下降后的保持期"，此时 flat 方向
-        不再触发"空闲中"语录（与工作标签显示保持一致）。
-        """
-        mono = self._mono_fn()
-        if (mono - self._last_balance_quote >= self.BALANCE_THROTTLE_S
-                and random.random() < self.balance_chance):
-            if self._emit_tag("balance"):
-                self._last_balance_quote = mono
-        if direction in ("up", "down", "flat"):
-            tag = {"up": "work_up", "down": "work_down", "flat": "work_flat"}[direction]
-            if direction == "flat" and working_hold:
-                return
-            if mono - self._last_work_quote[direction] >= self.WORK_THROTTLE_S:
-                if self._emit_tag(tag):
-                    self._last_work_quote[direction] = mono
-
     def on_affection_tier(self, tier):
         """好感档位切换时调用：high -> [affection_high]，mid/low 同理。"""
         tag = {"high": "affection_high", "mid": "affection_mid", "low": "affection_low"}.get(tier)
@@ -362,14 +163,14 @@ class SelfTalkMonitor(QObject):
 
     # ---------- 开关与调度 ----------
     def _schedule(self):
-        # 关闭开关、文本库为空、间隔 0 都要显式停表（random 与情境检查一起停）
+        # 关闭开关、文本库为空、间隔 0 都要显式停表（random 与情境检查一起停；文本不再来自语录库）
         enabled = bool(self.config.get("self_talk_enabled", True))
         val = self.config.get("self_talk_interval", 300)
         try:
             sec = int(val if val is not None else 300)
         except (TypeError, ValueError):
             sec = 300
-        if not enabled or not self._load_texts():
+        if not enabled:
             self._timer.stop()
             self._context_timer.stop()
             return
@@ -388,15 +189,15 @@ class DesktopPet:
             self.config.set(
                 "pet_image", DEFAULT_IMAGE if os.path.exists(DEFAULT_IMAGE) else ""
             )
-        self.talk_file = self.config.get("self_talk_file") or os.path.join(PROJECT_DIR, "self_talk_quotes.json")
-        self.head_file = self.config.get("pet_head_file") or os.path.join(PROJECT_DIR, "pet_head_quotes.json")
-        self._ensure_quote_files()
         if autostart.is_enabled():
             self.config.set("auto_start", True)
         self.window = PetWindow(self.config, default_image=DEFAULT_IMAGE)
-        self.monitor = BalanceMonitor(self.config)
         self.schedule = ScheduleMonitor()
-        self.talk = SelfTalkMonitor(self.config, self.talk_file)
+        self.talk = SelfTalkMonitor(self.config)
+        self.ai = AIClient(self.config)
+        self.history = ChatHistory(
+            os.path.join(PROJECT_DIR, "chat_history.json"),
+            self.config.get("chat_history_max", 200))
         self.affection = AffectionSystem(self.config)
         self.weather = WeatherMonitor(self.config)
         self._balloon = None
@@ -408,48 +209,67 @@ class DesktopPet:
         if not self.config.get("pet_interact_image") and os.path.exists(DEFAULT_INTERACT):
             self.config.set("pet_interact_image", DEFAULT_INTERACT)
         self.window.show()
-        self.monitor.start()
         if not os.environ.get("PET_SMOKE"):
             self.weather.start()  # 冒烟模式不访问网络（天气拉取放后台线程，会拖慢退出）
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
-    def _ensure_quote_files(self):
-        """确保两个语录库存在且为 JSON：旧 txt 自动迁移，缺失时复制预置默认库。"""
-        # 旧版 .txt 迁移为 .json（原文件保留）
-        if self.talk_file.lower().endswith(".txt") and os.path.exists(self.talk_file):
-            lines = load_txt_lines(self.talk_file)
-            if lines:
-                json_path = os.path.join(PROJECT_DIR, "self_talk_quotes.json")
-                write_json_quotes(json_path, lines)
-                self.talk_file = json_path
-                self.config.set("self_talk_file", json_path)
-        self.talk_file = self._ensure_quote_file(
-            self.talk_file, DEFAULT_SELF_TALK_QUOTES, self.config.get("self_talk_texts") or []
-        )
-        self.head_file = self._ensure_quote_file(
-            self.head_file, DEFAULT_PET_HEAD_QUOTES, self.config.get("pet_head_texts") or []
-        )
-        if self.talk_file != self.config.get("self_talk_file"):
-            self.config.set("self_talk_file", self.talk_file)
-        if self.head_file != self.config.get("pet_head_file"):
-            self.config.set("pet_head_file", self.head_file)
+    # ---------- AI 生成 ----------
+    def _system_prompt(self, tag=""):
+        tier_map = {"high": "好感度很高", "mid": "好感度一般", "low": "好感度较低"}
+        tier = self.affection.tier()
+        from scheduler import is_peak
+        period = "高峰时段" if is_peak() else "空闲时段"
+        parts = [
+            str(self.config.get("ai_persona", "")).strip(),
+            "当前情境：%s；%s。" % (period, tier_map.get(tier, tier)),
+        ]
+        if getattr(self, "_last_weather", ""):
+            parts.append("当前天气：%s。" % self._last_weather)
+        if tag:
+            parts.append("本次触发情境标签：%s。" % tag)
+        parts.append("回复要非常简短（一两句话），不要复述情境描述。")
+        return "\n".join(parts)
 
-    def _ensure_quote_file(self, path, default_src, fallback_texts):
-        if path and os.path.exists(path):
-            return path
-        if os.path.exists(default_src):
-            try:
-                shutil.copyfile(default_src, path)
-                return path
-            except Exception:
-                pass
-        write_json_quotes(path, fallback_texts)
-        return path
+    def _ask_ai(self, messages, meta):
+        n = int(self.config.get("ai_context_n", 10) or 10)
+        msgs = ([{"role": "system", "content": self._system_prompt(meta.get("tag", ""))}]
+                + self.history.context(n) + messages)
+        self.ai.chat(msgs, meta)
+
+    def _on_selftalk_tag(self, tag):
+        self._ask_ai(
+            [{"role": "user",
+              "content": "（情境触发，请以桌宠身份自发说一句话，简短口语化。）"}],
+            {"kind": "selftalk", "tag": tag})
+
+    def _show_pet_head(self):
+        """单击桌宠：AI 根据好感档位与上下文生成摸头反应。"""
+        self._ask_ai(
+            [{"role": "user",
+              "content": "（主人刚刚单击摸了摸你的头，请自然地反应一句话，简短口语化。）"}],
+            {"kind": "head"})
+
+    def _on_user_chat(self, text):
+        self.history.append("user", text)
+        self._ask_ai([{"role": "user", "content": text}], {"kind": "chat"})
+
+    def _on_ai_reply(self, text, ok, meta):
+        meta = meta or {}
+        kind = meta.get("kind", "chat")
+        if not ok:
+            if not bool(self.config.get("ai_fallback_enabled", True)):
+                return
+            text = str(self.config.get("ai_fallback_text", "唔……我现在有点短路了"))
+        self.history.append("assistant", text, kind=kind)
+        self._show_balloon(text)
+
+    def _open_history(self):
+        dlg = HistoryDialog(self.history)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.show()
 
     def _wire(self):
         w = self.window
-        w.toggleBalanceRequested.connect(self._on_toggle_balance)
-        w.bindAccountRequested.connect(lambda: self._open_settings(2))
         w.settingsRequested.connect(lambda: self._open_settings(0))
         w.appearanceRequested.connect(lambda: self._open_settings(1))
         w.testNotifyRequested.connect(self._test_notify)
@@ -458,22 +278,9 @@ class DesktopPet:
         w.petHeadRequested.connect(self._show_pet_head)
         w.petHeadRequested.connect(lambda: self.talk.note_interaction())
         w.petHeadRequested.connect(lambda: self.affection.note_pet())
+        w.chatInputRequested.connect(self._on_user_chat)
+        w.historyRequested.connect(self._open_history)
         w.moved.connect(self._on_moved)
-        m = self.monitor
-        m.balanceUpdated.connect(w.set_balance_text)
-        petlog.log("wire: balanceUpdated connected (thread %s)" % threading.get_ident())
-        self.monitor.balanceUpdated.emit(0.0, "selftest")
-        petlog.log("wire: selftest emit returned")
-        m.balanceUp.connect(lambda t: w.show_float_text(t, "#22C55E"))
-        m.balanceDown.connect(lambda t: w.show_float_text(t, "#EF4444"))
-        m.balanceUp.connect(lambda t: w.work_label.set_state("up"))
-        m.balanceDown.connect(lambda t: w.work_label.set_state("down"))
-        m.balanceFlat.connect(lambda t: w.work_label.set_state("flat"))
-        m.balanceUp.connect(lambda t: self.talk.on_balance_change("up"))
-        m.balanceDown.connect(lambda t: self.talk.on_balance_change("down"))
-        m.balanceFlat.connect(lambda t: self.talk.on_balance_change(
-            "flat", working_hold=w.work_label.in_working_hold()))
-        m.fetchError.connect(self._on_fetch_error)
 
         a = self.affection
         a.tierChanged.connect(self.talk.on_affection_tier)
@@ -485,14 +292,15 @@ class DesktopPet:
             self.config.get("peak_balloon_text", "高峰时段开始啦……"), persistent=True))
         s.idleStarted.connect(lambda: self._show_balloon(
             self.config.get("idle_balloon_text", "空闲时段开始啦！"), persistent=True))
-        # 时段常态显示：启动即定初始状态，切换时同步刷新（置顶层级同余额文本）
         from scheduler import is_peak
         w.status_label.set_state(is_peak())
         s.peakStarted.connect(lambda: w.status_label.set_state(True))
         s.idleStarted.connect(lambda: w.status_label.set_state(False))
-        self.talk.talk.connect(self._show_balloon)
+        self.talk.request_talk.connect(self._on_selftalk_tag)
         self.weather.weatherChanged.connect(self.talk.set_weather)
+        self.weather.weatherChanged.connect(lambda k: setattr(self, "_last_weather", k))
         self.weather.weatherError.connect(self._on_weather_error)
+        self.ai.reply.connect(self._on_ai_reply)
 
     def _on_weather_error(self, msg):
         """天气拉取失败：只留日志，不弹通知打扰用户。"""
@@ -509,10 +317,6 @@ class DesktopPet:
         if self._balloon is not None and self._balloon.isVisible():
             self._balloon.set_anchor(self.window.geometry())
 
-    def _on_toggle_balance(self, visible):
-        self.config.set("show_balance", bool(visible))
-        self.window.set_balance_visible(visible)
-
     def _on_auto_start(self, enabled):
         try:
             if enabled:
@@ -522,16 +326,6 @@ class DesktopPet:
             self.config.set("auto_start", bool(enabled))
         except Exception:
             self.window.show_float_text("自启设置失败", "#EF4444")
-
-    def _show_pet_head(self):
-        """单击桌宠：按当前好感档位随机取一条摸头语录显示。"""
-        text = pick_head_quote(
-            self.head_file,
-            self.config.get("pet_head_texts") or [],
-            tier=self.affection.tier(),
-        )
-        if text:
-            self._show_balloon(text)
 
     def _show_balloon(self, text, persistent=False):
         # 特殊通知（高峰/空闲，需点按钮确认）显示期间，抑制自言自语/摸头等普通通知
@@ -590,8 +384,6 @@ class DesktopPet:
     def _on_settings_applied(self):
         self._settings_dlg = None
         self.window.apply_config()
-        self.monitor.set_interval(int(self.config.get("poll_interval_sec", 3)))
-        self.monitor.poll()
         self.talk._schedule()
         self.affection.apply_config()
         if self._balloon is not None:
@@ -621,7 +413,7 @@ class DesktopPet:
         menu.addSeparator()
         menu.addAction("退出", QApplication.instance().quit)
         tray.setContextMenu(menu)
-        tray.setToolTip("桌宠（余额与提醒）")
+        tray.setToolTip("桌宠（AI）")
         tray.activated.connect(self._on_tray_activated)
         tray.show()
         self._tray = tray
@@ -660,7 +452,7 @@ class DesktopPet:
                             names.append(b.window_text())
                 except Exception:
                     pass
-            return any(("桌宠" in x) or ("余额与提醒" in x) for x in names)
+            return any(("桌宠" in x) or ("AI" in x) for x in names)
         except Exception as e:
             petlog.log("tray verify enumeration error: %s" % e)
             return True  # 枚举失败时不误判，保持现状
@@ -679,22 +471,13 @@ class DesktopPet:
         show = not w.isVisible()
         w.setVisible(show)
         if show:
-            w.apply_config()  # 同步余额/时段标签的可见性与位置
+            w.apply_config()  # 同步输入框/时段标签的可见性与位置
         else:
-            w.balance_label.hide()
+            w.chat_input.hide()
             w.status_label.hide()
-            w.work_label.hide()
             w.affection_label.hide()
         if getattr(self, "_tray_toggle_action", None):
             self._tray_toggle_action.setText("显示桌宠" if not show else "隐藏桌宠")
-
-    def _on_fetch_error(self, message):
-        import time
-        self.window.set_balance_text(0.0, "获取失败")
-        now = time.time()
-        if now - self._last_error_ts > 300:
-            self._last_error_ts = now
-            self.window.show_float_text("余额获取失败", "#EF4444")
 
 
 def main():

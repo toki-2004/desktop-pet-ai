@@ -12,8 +12,6 @@ DEFAULT_CONFIG = {
     "idle_balloon_text": "空闲时段开始啦！",
     "peak_status_text": "高峰时段",
     "idle_status_text": "空闲时段",
-    "work_label_enabled": True,
-    "work_state_hold_sec": 180,
     "affection_enabled": True,
     "affection_initial": 70,
     "affection_max": 100,
@@ -29,36 +27,26 @@ DEFAULT_CONFIG = {
     "pet_pos": [],
     "pet_scale": 1.0,
     "pet_interact_image": "",
-    "show_balance": True,
     "balance_font_size": 14,
-    "balance_offset": [],
-    "poll_interval_sec": 3,
     "always_on_top": True,
     "self_talk_enabled": True,
-    "self_talk_texts": [
-        "今天也是元气满满的一天！",
-        "主人工作辛苦了～",
-        "要不要摸摸头？",
-        "我在认真看家呢。",
-        "呼……好想出去晒晒太阳。",
-        "余额安全，请放心～",
-    ],
     "self_talk_interval": 300,
-    "self_talk_file": "",
     "pet_head_enabled": True,
-    "pet_head_texts": [
-        "嘿嘿，主人摸得我好舒服～",
-        "再摸摸！还要！",
-        "主人的手好温柔……",
-        "呼噜呼噜～",
-        "被摸头的感觉真棒！",
-        "唔……有点困了，但还想被摸。",
-        "摸摸我的时候，世界都安静了。",
-        "今天也要多摸摸我哦！",
-    ],
-    "pet_head_file": "",
     "auto_start": False,
-    "accounts": {},
+    # AI 对话（OpenAI 兼容）
+    "ai_preset": "deepseek_web2api",
+    "ai_base_url": "http://127.0.0.1:8000/v1",
+    "ai_api_key": "",
+    "ai_model": "deepseek-chat",
+    "ai_persona": (
+        "你是一只住在用户桌面上的 AI 桌宠，说话可爱、简短、口语化，每次回复尽量不超过两句话。"
+        "你会根据当前情境（时间、天气、好感度等）主动说话，也会回应主人的摸头和聊天。"
+    ),
+    "ai_context_n": 10,
+    "ai_fallback_enabled": True,
+    "ai_fallback_text": "唔……我现在有点短路了",
+    "chat_history_max": 200,
+    "chat_input_offset": [],
 }
 
 
@@ -77,7 +65,6 @@ class Config:
             for key in DEFAULT_CONFIG:
                 if key in loaded:
                     self.data[key] = loaded[key]
-            self._migrate_accounts()
         except Exception as e:
             # 配置损坏（含 API Key 与全部个性化设置）绝不能静默丢失：
             # 坏档改名保留供排查，控制台留痕，下次保存生成全新配置
@@ -86,19 +73,6 @@ class Config:
                 os.replace(self.path, self.path + ".broken")
             except Exception:
                 pass
-
-    def _migrate_accounts(self):
-        """旧格式 {名称: Key} 迁移为 {名称: {platform, api_key}}。"""
-        accounts = self.data.get("accounts")
-        if not isinstance(accounts, dict):
-            return
-        changed = False
-        for name, acc in list(accounts.items()):
-            if isinstance(acc, str):
-                accounts[name] = {"platform": "deepseek", "api_key": acc}
-                changed = True
-        if changed:
-            self.save()
 
     def save(self):
         try:

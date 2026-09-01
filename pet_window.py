@@ -10,7 +10,7 @@ import time
 
 from PyQt5.QtCore import Qt, QPoint, QSize, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
 from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageReader
-from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication
+from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication, QLineEdit
 
 from scheduler import is_peak
 import petlog
@@ -49,37 +49,32 @@ def set_topmost_flag(widget, on):
             pass
 
 
-class BalanceLabel(QLabel):
-    """余额文本标签（独立置顶小窗口）：滚轮调整字号，可拖动并记住位置。
-
-    文本更新统一走 set_balance()——带日志，便于定位"信号发了但标签没变"。
-    """
+class ChatInput(QLineEdit):
+    """聊天输入框（独立置顶小窗口）：回车发送给 AI，可拖动并记住位置。"""
 
     def __init__(self, config, parent=None):
-        super().__init__(
-            None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        )
+        super().__init__(None)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
         self.config = config
         self.pet_window = parent
         self._drag_pos = None
-        self.setText("余额…")
+        self.setPlaceholderText("和桌宠说点什么…")
+        self.returnPressed.connect(self._send)
         self._apply_style()
 
+    def _send(self):
+        text = self.text().strip()
+        if text:
+            self.clear()
+            if self.pet_window is not None:
+                self.pet_window.chatInputRequested.emit(text)
+
     def set_top_flag(self, on):
-        """同步"显示在最上层"开关：与桌宠/通知/浮动字保持一致。"""
         set_topmost_flag(self, on)
 
     def _current_fs(self):
         return int(self.config.get("balance_font_size", 14) or 14)
-
-    def set_balance(self, text):
-        if text == self.text():
-            return
-        petlog.log("balance label: %r -> %r" % (self.text(), text))
-        self.setText(text)
-        self._apply_style()
 
     def _apply_style(self):
         fs = self._current_fs()
@@ -87,33 +82,21 @@ class BalanceLabel(QLabel):
         font.setPointSize(fs)
         font.setBold(True)
         self.setFont(font)
-        self.resize(max(24, self.sizeHint().width() + 16),
-                    max(18, self.sizeHint().height() + 6))
+        self.adjustSize()
+        self.setFixedWidth(max(180, self.sizeHint().width() + 16))
         if self.pet_window is not None:
-            self.pet_window._place_balance()
+            self.pet_window._place_input()
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        p.setPen(QPen(QColor("#CCCCCC"), 1))
-        p.setBrush(QBrush(QColor("#FFFFFF")))
+        p.setPen(QPen(QColor("#3D8BFF"), 1))
+        p.setBrush(QBrush(QColor(255, 255, 255, 235)))
         p.drawRoundedRect(rect, 8, 8)
         p.setPen(QColor(0, 0, 0))
-        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
-
-    def wheelEvent(self, event):
-        delta = event.angleDelta().y()
-        if delta:
-            factor = 1.12 if delta > 0 else 1 / 1.12
-            fs = max(8, min(30, int(round(self._current_fs() * factor))))
-            self.config.set("balance_font_size", fs)
-            self._apply_style()
-            # 状态/工作/好感标签字号跟随全局字号（-2）：滚轮入口走统一刷新出口，
-            # 三个标签一起同步，避免只刷了时段标签、工作/好感标签尺寸滞后
-            if self.pet_window is not None:
-                self.pet_window._refresh_status_group()
-        event.accept()
+        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignLeft | Qt.AlignVCenter,
+                   self.text() or self.placeholderText())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -134,7 +117,7 @@ class BalanceLabel(QLabel):
     def mouseReleaseEvent(self, event):
         if self._drag_pos is not None:
             if self.pet_window is not None:
-                self.config.set("balance_offset", [
+                self.config.set("chat_input_offset", [
                     self.x() - self.pet_window.x(),
                     self.y() - self.pet_window.y(),
                 ])
@@ -146,7 +129,7 @@ class StatusLabel(QLabel):
     """时段状态标签（独立置顶小窗口）：常态显示当前是高峰还是空闲时段。
 
     展示层级与余额文本保持一致——同样跟随 always_on_top 置顶开关
-    （_apply_top_flag 里一起 set_top_flag），挂在桌宠左上角。
+    （_apply_top_flag 里一起 set_top_flag）。
     """
 
     def __init__(self, config, parent=None):
@@ -195,98 +178,6 @@ class StatusLabel(QLabel):
         p.setRenderHint(QPainter.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         c = self.PALETTE[bool(self._peak)]
-        p.setPen(QPen(c["border"], 1))
-        p.setBrush(c["fill"])
-        p.drawRoundedRect(rect, 8, 8)
-        p.setPen(c["text"])
-        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignCenter, self.text())
-
-
-class WorkingStatusLabel(QLabel):
-    """工作状态标签（独立置顶小窗口）：以余额升降作为判定标准。
-
-    余额降低 = 正在工作（烧余额）-> "工作中"（琥珀色系）；
-    余额不变 = 没在工作 -> "空闲中"（灰色系）；
-    余额升高 = 充值 -> "充值了"（绿色系）；
-    未取得数据 -> "余额未知"（深灰系）。文本与配色均可由 config 定制。
-    """
-
-    def __init__(self, config, parent=None):
-        super().__init__(
-            None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        )
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
-        self.config = config
-        self.pet_window = parent
-        self._state = "unknown"
-        self._last_down = 0.0      # monotonic：最近一次余额下降时刻（保持期基准）
-        self._hold_sec = 180.0     # 余额下降后保持"工作中"的秒数（默认 3 分钟）
-        self.setText(self.config.get("work_unknown_text", "余额未知") or "余额未知")
-        self._apply_style()
-
-    def set_top_flag(self, on):
-        set_topmost_flag(self, on)
-
-    def set_hold_sec(self, seconds):
-        """余额下降后保持"工作中"的时长（配置热更新入口）。"""
-        try:
-            self._hold_sec = max(0.0, float(seconds))
-        except (TypeError, ValueError):
-            self._hold_sec = 180.0
-
-    def in_working_hold(self):
-        """是否处于"余额下降后的保持期"：是则 flat 信号应维持"工作中"。"""
-        return self._state == "down" and time.monotonic() - self._last_down < self._hold_sec
-
-    def set_state(self, state):
-        """state: "up"（充值）/ "down"（工作中）/ "flat"（空闲中）/ "unknown"。"""
-        state = state if state in ("up", "down", "flat") else "unknown"
-        if state == "down":
-            self._last_down = time.monotonic()
-        # 保持期判定要在更新 _last_down 之后、状态切换之前做，
-        # 否则刚收到的 down 事件会把旧的 flat 也当成"保持期内"拦掉
-        if state == "flat" and self.in_working_hold():
-            # 余额同步往往没那么快：下降后保持期内不切回"空闲中"
-            return
-        if state == self._state and self.text():
-            return
-        self._state = state
-        if state == "up":
-            self.setText(self.config.get("work_up_text", "充值了") or "充值了")
-        elif state == "down":
-            self.setText(self.config.get("work_down_text", "工作中") or "工作中")
-        elif state == "flat":
-            self.setText(self.config.get("work_flat_text", "空闲中") or "空闲中")
-        else:
-            self.setText(self.config.get("work_unknown_text", "余额未知") or "余额未知")
-        self._apply_style()
-
-    def _apply_style(self):
-        fs = int(self.config.get("balance_font_size", 14) or 14)
-        font = self.font()
-        font.setPointSize(max(9, fs - 2))
-        font.setBold(True)
-        self.setFont(font)
-        self.resize(max(24, self.sizeHint().width() + 16),
-                    max(18, self.sizeHint().height() + 6))
-        self.update()
-        if self.pet_window is not None:
-            self.pet_window._place_work()
-
-    # 配色：充值=绿色系，工作中=琥珀色系，空闲中=灰色系，未知=深灰系
-    PALETTE = {
-        "up": {"border": QColor("#27AE60"), "text": QColor("#1E7B4F"), "fill": QColor(39, 174, 96, 34)},
-        "down": {"border": QColor("#E67E22"), "text": QColor("#C65E0E"), "fill": QColor(230, 126, 34, 34)},
-        "flat": {"border": QColor("#95A5A6"), "text": QColor("#6B7B7C"), "fill": QColor(149, 165, 166, 32)},
-        "unknown": {"border": QColor("#5D6D7E"), "text": QColor("#34495E"), "fill": QColor(93, 109, 126, 32)},
-    }
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        c = self.PALETTE[self._state]
         p.setPen(QPen(c["border"], 1))
         p.setBrush(c["fill"])
         p.drawRoundedRect(rect, 8, 8)
@@ -363,14 +254,14 @@ class AffectionLabel(QLabel):
 
 
 class PetWindow(QWidget):
-    toggleBalanceRequested = pyqtSignal(bool)
-    bindAccountRequested = pyqtSignal()
     settingsRequested = pyqtSignal()
     appearanceRequested = pyqtSignal()
     testNotifyRequested = pyqtSignal()
     quitRequested = pyqtSignal()
     autoStartRequested = pyqtSignal(bool)
     petHeadRequested = pyqtSignal()
+    chatInputRequested = pyqtSignal(str)
+    historyRequested = pyqtSignal()
     moved = pyqtSignal(QPoint)
 
     def __init__(self, config, default_image=""):
@@ -402,12 +293,8 @@ class PetWindow(QWidget):
             lambda: self.config.set("pet_scale", round(self._scale, 3)))
 
         self.pet_label = QLabel(self)
-        self.balance_label = BalanceLabel(config, self)
-        self.balance_label.setText("余额…")  # 首次拉取前的占位，避免空白圆角框
-        self.balance_label.hide()
+        self.chat_input = ChatInput(config, self)
         self.status_label = StatusLabel(config, self)
-        self.work_label = WorkingStatusLabel(config, self)
-        self.work_label.set_hold_sec(self.config.get("work_state_hold_sec", 180))
         self.affection_label = AffectionLabel(config, self)
 
         self.apply_config()
@@ -420,27 +307,23 @@ class PetWindow(QWidget):
             path = self.default_image
         self._normal_path = path
         self._load_pet(self._normal_path)
-        self._apply_balance_style()
-        self.balance_label.setVisible(bool(self.config.get("show_balance", True)))
-        self._place_balance()
         self._apply_top_flag()
         # 时段状态常态显示：文案可被 config 自定义，这里同步刷新并随窗口显示
         self.status_label.set_state(is_peak())
-        self.work_label.set_hold_sec(self.config.get("work_state_hold_sec", 180))
         self.status_label.show()
-        self.work_label.setVisible(bool(self.config.get("work_label_enabled", True)))
         self.affection_label.setVisible(bool(self.config.get("affection_label_enabled", True)))
+        self.chat_input.setVisible(True)
         # 统一刷新出口：字号跟随 balance_font_size（-2），任何入口
         # （滚轮/设置保存/隐藏-显示）都走这里，三个标签尺寸同步
-        self._refresh_status_group()
+        self._place_status()
+        self._place_affection()
 
     def _apply_top_flag(self):
         """同步置顶开关：桌宠、余额文本、时段状态、已有浮动字一起切换。"""
         on = bool(self.config.get("always_on_top", True))
         set_topmost_flag(self, on)
-        self.balance_label.set_top_flag(on)
+        self.chat_input.set_top_flag(on)
         self.status_label.set_top_flag(on)
-        self.work_label.set_top_flag(on)
         self.affection_label.set_top_flag(on)
         for lab in list(self._floats):
             set_topmost_flag(lab, on)
@@ -497,7 +380,6 @@ class PetWindow(QWidget):
             self._normal_display_size = fitted.size()
         self.pet_label.setFixedSize(size)
         self.setFixedSize(size)
-        self._place_balance()
         self._place_status()
 
     @staticmethod
@@ -525,50 +407,6 @@ class PetWindow(QWidget):
         self._scale_save_timer.start()
         self._apply_scale()
 
-    # ---------- 余额常态显示 ----------
-    def set_balance_text(self, total, text):
-        # 余额更新唯一入口（信号槽）：日志用于区分"信号没到"与"到了没画"
-        petlog.log("set_balance_text %r (thread %s)" % (text, threading.get_ident()))
-        self.balance_label.set_balance(text)
-
-    def set_balance_visible(self, visible):
-        self.balance_label.setVisible(visible)
-        self.config.set("show_balance", bool(visible))
-
-    def _apply_balance_style(self):
-        self.balance_label._apply_style()
-
-    def _place_balance(self):
-        # BalanceLabel 构造期间会回调到这里，此时 balance_label 尚未挂到 self 上
-        label = getattr(self, "balance_label", None)
-        if label is None:
-            return
-        off = self.config.get("balance_offset")
-        if isinstance(off, list) and len(off) == 2:
-            dx, dy = int(off[0]), int(off[1])
-        else:
-            dx = label.width() and (self.width() - label.width() - 6) or 6
-            dy = 6
-        label.move(self.x() + dx, self.y() + dy)
-
-    def _refresh_status_group(self):
-        """状态/工作/好感三个标签的统一刷新出口（字号/框体尺寸/位置）。
-
-        每个入口（滚轮调字号、设置保存、隐藏-显示桌宠、配置迁移）都必须走
-        这里，不能只刷新其中一两个标签，否则会出现字号已变但框体尺寸滞后的
-        不同步现象（2026-08-31 修复）。三个标签按依赖顺序刷新：
-        状态标签先定位，工作标签跟随其右侧，好感标签跟随其左侧。
-        """
-        status = getattr(self, "status_label", None)
-        work = getattr(self, "work_label", None)
-        aff = getattr(self, "affection_label", None)
-        if status is not None:
-            status._apply_style()
-        if work is not None:
-            work._apply_style()
-        if aff is not None:
-            aff._apply_style()
-
     def _place_status(self):
         # 时段状态放在桌宠正下部（用户指定）：文本框上缘紧贴桌宠窗口下缘，水平居中。
         # StatusLabel 构造期间会回调到这里，此时 status_label 尚未挂到 self 上。
@@ -579,21 +417,7 @@ class PetWindow(QWidget):
         rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
         x = rect.x() + max(0, (rect.width() - label.width()) // 2)
         label.move(x, rect.y() + rect.height())
-        self._place_work()
-
-    def _place_work(self):
-        """工作状态标签：以时段标签当前位置为基准，紧贴其右侧同一行。
-
-        独立定位（不依赖 _place_status 重算），保证状态标签在
-        冻结/播放/恢复等路径归位时，工作标签始终跟随。
-        """
-        status = getattr(self, "status_label", None)
-        work = getattr(self, "work_label", None)
-        if status is None or work is None or not work.isVisible():
-            return
-        gap = 6
-        work.move(status.x() + status.width() + gap, status.y())
-        self._place_affection()
+        self._place_input()
 
     def _place_affection(self):
         """好感标签：紧贴时段/工作状态组的左侧同一行。"""
@@ -603,6 +427,21 @@ class PetWindow(QWidget):
             return
         gap = 6
         aff.move(status.x() - aff.width() - gap, status.y())
+
+    def _place_input(self):
+        """聊天输入框：默认在时段标签正下方居中，用户可拖动后按偏移记忆。"""
+        box = getattr(self, "chat_input", None)
+        if box is None:
+            return
+        off = self.config.get("chat_input_offset")
+        if isinstance(off, list) and len(off) == 2:
+            box.move(self.x() + int(off[0]), self.y() + int(off[1]))
+        else:
+            status = getattr(self, "status_label", None)
+            if status is None:
+                return
+            box.move(self.x() + max(0, (self.width() - box.width()) // 2),
+                     status.y() + status.height() + 6)
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):
@@ -675,7 +514,6 @@ class PetWindow(QWidget):
             QTimer.singleShot(600, self._show_normal)
         self.pet_label.setFixedSize(size)
         self.setFixedSize(size)
-        self._place_balance()
         self._place_status()
         return True
 
@@ -756,23 +594,20 @@ class PetWindow(QWidget):
     def moveEvent(self, event):
         if self._drag_pos is not None:
             self.moved.emit(self.pos())
-        if self.balance_label.isVisible():
-            self._place_balance()
+        if self.chat_input.isVisible():
+            self._place_input()
         self._place_status()
         super().moveEvent(event)
 
     # ---------- 右键菜单 ----------
     def contextMenuEvent(self, event):
         menu = QMenu(self)
-        act_balance = menu.addAction("余额常态显示")
-        act_balance.setCheckable(True)
-        act_balance.setChecked(bool(self.config.get("show_balance", True)))
-        act_balance.triggered.connect(self.set_balance_visible)
+        act_hist = menu.addAction("聊天记录…")
+        act_hist.triggered.connect(self.historyRequested.emit)
         act_autostart = menu.addAction("开机自启")
         act_autostart.setCheckable(True)
         act_autostart.setChecked(bool(self.config.get("auto_start", False)))
         act_autostart.triggered.connect(self.autoStartRequested.emit)
-        menu.addAction("绑定/管理账号…", self.bindAccountRequested.emit)
         menu.addAction("通知设置…", self.settingsRequested.emit)
         menu.addAction("更换外观 (PNG/GIF)…", self.appearanceRequested.emit)
         menu.addAction("发送测试通知", self.testNotifyRequested.emit)
