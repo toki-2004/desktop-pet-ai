@@ -404,12 +404,12 @@ class DesktopPet:
                              rebind_callback=self._rebind_web2api)
         dlg.setAttribute(Qt.WA_DeleteOnClose)
         dlg.destroyed.connect(self._on_settings_destroyed)
-
-    def _rebind_web2api(self):
-        self.web2api.rebind_async()
         dlg.accepted.connect(self._on_settings_applied)
         self._settings_dlg = dlg
         dlg.show()
+
+    def _rebind_web2api(self):
+        self.web2api.rebind_async()
 
     def _on_settings_destroyed(self):
         self._settings_dlg = None

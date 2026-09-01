@@ -345,6 +345,10 @@ check("app-level: chat input visible", pet2.window.chat_input.isVisible())
 pet2._open_history()
 app.processEvents()
 check("history dialog visible after processEvents", pet2._history_dlg.isVisible())
+pet2._open_settings(0)
+app.processEvents()
+check("settings dialog visible after _open_settings",
+      pet2._settings_dlg is not None and pet2._settings_dlg.isVisible())
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
