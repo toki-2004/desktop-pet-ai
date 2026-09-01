@@ -24,7 +24,7 @@ from scheduler import ScheduleMonitor
 from settings_dialog import SettingsDialog
 from weather import WeatherMonitor
 from affection import AffectionSystem
-from ai_client import AIClient
+from ai_client import AIClient, PRESETS
 from chat_history import ChatHistory, HistoryDialog
 import autostart
 import web2api
@@ -196,6 +196,10 @@ class DesktopPet:
         if (self.config.get("ai_preset") == "deepseek_web2api"
                 and str(self.config.get("ai_base_url", "")).endswith(":8000/v1")):
             self.config.set("ai_base_url", "http://127.0.0.1:3000/v1")
+        # 旧配置迁移：内置服务要求 Bearer sk-local，空 key 会一直 401
+        if (self.config.get("ai_preset") == "deepseek_web2api"
+                and not self.config.get("ai_api_key")):
+            self.config.set("ai_api_key", PRESETS["deepseek_web2api"]["key"])
         self.window = PetWindow(self.config, default_image=DEFAULT_IMAGE)
         self.schedule = ScheduleMonitor()
         self.talk = SelfTalkMonitor(self.config)

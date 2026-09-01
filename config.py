@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
     # AI 对话（OpenAI 兼容）
     "ai_preset": "deepseek_web2api",
     "ai_base_url": "http://127.0.0.1:3000/v1",
-    "ai_api_key": "",
+    "ai_api_key": "sk-local",  # 内置服务的本地 key（与 vendor config.json 一致）
     "ai_model": "deepseek-chat",
     "ai_persona": (
         "你是一只住在用户桌面上的 AI 桌宠，说话可爱、简短、口语化，每次回复尽量不超过两句话。"

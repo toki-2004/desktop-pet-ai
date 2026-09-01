@@ -216,6 +216,8 @@ class SettingsDialog(QDialog):
         elif self.preset_combo.currentData() != "custom":
             self.base_edit.setText(p["base_url"])
             self.model_edit.setText(p["model"])
+            if p.get("key"):
+                self.key_edit.setText(p["key"])
 
     def _reset_affection(self):
         self.config.set("affection_value", float(self.aff_initial.value()))

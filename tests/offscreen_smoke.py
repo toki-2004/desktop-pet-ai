@@ -295,6 +295,12 @@ check("presets have base_url and model",
       all("base_url" in p and "model" in p for p in PRESETS.values()))
 check("local preset points at 127.0.0.1",
       PRESETS["deepseek_web2api"]["base_url"].startswith("http://127.0.0.1"))
+check("local preset carries vendor key",
+      PRESETS["deepseek_web2api"].get("key") == "sk-local")
+dlg_pk = SettingsDialog(cfg)
+dlg_pk.preset_combo.setCurrentIndex(list(PRESETS).index("deepseek_web2api"))
+dlg_pk._apply_preset()
+check("preset apply fills local key", dlg_pk.key_edit.text() == "sk-local")
 
 # 10.5 web2api manager: probe monkeypatched, rebind button wired
 import web2api as w2a  # noqa: E402

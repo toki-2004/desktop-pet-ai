@@ -12,6 +12,7 @@ PRESETS = {
         "name": "DeepSeekWeb2API（内置免费）",
         "base_url": "http://127.0.0.1:3000/v1",
         "model": "deepseek",
+        "key": "sk-local",  # 与 vendor/DeepSeekWeb2API/config.json 的 apiKey 一致
     },
     "siliconflow": {
         "name": "硅基流动",
