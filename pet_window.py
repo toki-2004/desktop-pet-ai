@@ -825,13 +825,21 @@ class PetWindow(QWidget):
         lab.setWindowFlags(flags)
         lab.setAttribute(Qt.WA_TranslucentBackground)
         fs = int(self.config.get("balance_font_size", 14) or 14)
-        lab.setStyleSheet(
-            "color:%s; font-size:%dpt; font-weight:bold; background:transparent;"
-            % (color, fs)
-        )
-        lab.adjustSize()
+        font = lab.font()
+        font.setPointSize(fs)
+        font.setBold(True)
+        lab.setFont(font)
+        lab.setStyleSheet("color:%s; background:transparent;" % color)
+        lab.resize(lab.sizeHint() + QSize(16, 8))
         geo = self.geometry()
-        lab.move(geo.center().x() - lab.width() // 2, geo.top() - lab.height() - 6)
+        screen = QApplication.screenAt(geo.center())
+        avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
+        x = max(avail.left(), min(geo.center().x() - lab.width() // 2,
+                                  avail.right() - lab.width()))
+        y = geo.top() - lab.height() - 6
+        if y < avail.top():
+            y = geo.bottom() + 6  # 桌宠贴近屏幕顶时改在下方浮动，避免被裁
+        lab.move(x, y)
         lab.show()
         self._floats.add(lab)
 

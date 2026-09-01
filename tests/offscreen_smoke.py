@@ -7,6 +7,7 @@ SelfTalkMonitor tag emission, ChatHistory, ChatInput, AI presets, weather.
 """
 import os
 import sys
+import json
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -454,7 +455,9 @@ w2a.requests.get = orig_get
 _restart_calls = []
 _orig_restart = w2a._restart_for_config
 w2a._restart_for_config = lambda: _restart_calls.append(1)
-w2a.apply_max_messages(20)  # 与当前 vendor 配置相同：不应触发重启
+with open(os.path.join(w2a.VENDOR_DIR, "config.json"), "r", encoding="utf-8") as _f:
+    _cur_max = int((json.load(_f).get("conversation") or {}).get("maxMessages", 20))
+w2a.apply_max_messages(_cur_max)  # 与当前 vendor 配置相同：不应触发重启
 check("apply_max_messages no-op when unchanged", _restart_calls == [])
 w2a._restart_for_config = _orig_restart
 
@@ -504,6 +507,23 @@ pet2._open_settings(0)
 app.processEvents()
 check("settings dialog visible after _open_settings",
       pet2._settings_dlg is not None and pet2._settings_dlg.isVisible())
+
+# 12. float text: padding fits text, position clamped on screen
+_ft_text = "+¥1.50"
+pet.show_float_text(_ft_text, "#22C55E")
+app.processEvents()
+_floats = list(pet._floats)
+check("float text: label created", len(_floats) == 1)
+if _floats:
+    _fl = _floats[0]
+    check("float text: width fits text",
+          _fl.width() >= _fl.fontMetrics().horizontalAdvance(_ft_text),
+          (_fl.width(), _fl.fontMetrics().horizontalAdvance(_ft_text)))
+    _avail = QApplication.primaryScreen().availableGeometry()
+    check("float text: on screen",
+          _fl.x() >= _avail.left() and _fl.y() >= _avail.top()
+          and _fl.x() + _fl.width() <= _avail.right(),
+          (_fl.x(), _fl.y(), _fl.width(), _avail))
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
