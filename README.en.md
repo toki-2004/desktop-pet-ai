@@ -42,13 +42,19 @@ in real time by an OpenAI-compatible API — no quote libraries at all.
 8. **Thought-cloud notifications**: actions pop a cloud bubble with
    customizable fill/outline colors, text and font size.
 9. **Appearance**: import PNG/GIF skins; the head-pat animation (GIF, plays
-   once, transparent background) and window always-on-top are switchable.
+   once, transparent background) and window always-on-top are switchable
+   (default skin `assets/ds拟人.png`, default head-pat animation
+   `assets/ds拟人_q.gif`).
 10. **Affection system**: petting/interaction raises affection, idleness
     decays it over time; high/mid/low tiers shape the AI's tone and triggers;
     an "affection" badge can be shown, and every parameter (initial, cap,
     gain, decay, thresholds) is configurable.
 11. **Period status label**: peak/idle status label stays visible
     (customizable text), confirmed via bubble.
+12. **Position/size memory & one-click recall**: position and size are saved on
+    exit and restored on the next launch; the tray menu's "Recall to center"
+    moves the pet to the center of the current screen without resizing it, so
+    it can always be brought back even if it was dragged off-screen.
 
 AI messages never use force notifications: they appear as bubbles/labels, and
 chat content is persisted for later reading.

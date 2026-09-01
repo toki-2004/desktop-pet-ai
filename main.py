@@ -38,8 +38,8 @@ else:
     BUNDLE_DIR = PROJECT_DIR
 
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.json")
-DEFAULT_IMAGE = os.path.join(BUNDLE_DIR, "assets", "deepseek拟人.png")
-DEFAULT_INTERACT = os.path.join(BUNDLE_DIR, "assets", "ds摸头.gif")
+DEFAULT_IMAGE = os.path.join(BUNDLE_DIR, "assets", "ds拟人.png")
+DEFAULT_INTERACT = os.path.join(BUNDLE_DIR, "assets", "ds拟人_q.gif")
 
 
 def _input_idle_seconds():
@@ -442,6 +442,7 @@ class DesktopPet:
         tray = QSystemTrayIcon(icon)
         menu = QMenu()
         self._tray_toggle_action = menu.addAction("隐藏桌宠", self._toggle_pet_visible)
+        menu.addAction("一键召回（移到屏幕正中）", self._recall_pet)
         menu.addAction("通知设置…", lambda: self._open_settings(0))
         menu.addAction("外观设置…", lambda: self._open_settings(1))
         menu.addSeparator()
@@ -455,6 +456,10 @@ class DesktopPet:
         petlog.log("tray create #%d: shown (visible=%s available=%s)" % (
             attempt, tray.isVisible(), QSystemTrayIcon.isSystemTrayAvailable()))
         QTimer.singleShot(2500, lambda: self._verify_tray(tray, attempt))
+
+    def _recall_pet(self):
+        """一键召回：保持大小，把桌宠放到当前屏幕正中间（防掉出屏幕无法操作）。"""
+        self.window.recall_to_center()
 
     def _verify_tray(self, tray, attempt):
         """UIA 自检：枚举任务栏与隐藏区按钮，确认桌宠图标已真实注册；
@@ -523,6 +528,7 @@ def main():
     # 不应触发"最后窗口关闭即退出"，退出统一走右键菜单。
     app.setQuitOnLastWindowClosed(False)
     pet = DesktopPet()
+    app.aboutToQuit.connect(pet.window.save_state)  # 退出前记住位置与大小
 
     if os.environ.get("PET_SMOKE"):
         QTimer.singleShot(1500, pet._test_notify)

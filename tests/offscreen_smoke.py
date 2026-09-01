@@ -312,6 +312,23 @@ check("shrink pet: affection label follows too",
       pet.affection_label.y() == pet.status_label.y() + pet.status_label.height() + 2,
       (zoom_aff_y, pet.affection_label.y(), pet.status_label.y()))
 
+# 9.6 一键召回：不改变大小，放到当前屏幕正中间；退出保存位置与缩放
+pet.move(12, 34)
+app.processEvents()
+size_before = (pet.width(), pet.height())
+pet.recall_to_center()
+geo = app.primaryScreen().availableGeometry()
+check("recall centers pet without resizing",
+      pet.x() == geo.x() + max(0, (geo.width() - pet.width()) // 2)
+      and pet.y() == geo.y() + max(0, (geo.height() - pet.height()) // 2)
+      and (pet.width(), pet.height()) == size_before,
+      (pet.x(), pet.y(), geo.x(), geo.y(), geo.width(), geo.height(), size_before))
+pet.save_state()
+check("save_state persists position and scale",
+      cfg.get("pet_pos") == [pet.x(), pet.y()]
+      and abs(float(cfg.get("pet_scale", 1.0)) - pet._scale) < 0.001,
+      (cfg.get("pet_pos"), cfg.get("pet_scale"), pet._scale))
+
 # 10. AI presets structure
 check("presets have base_url and model",
       all("base_url" in p and "model" in p for p in PRESETS.values()))

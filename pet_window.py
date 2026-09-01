@@ -482,6 +482,19 @@ class PetWindow(QWidget):
         self._press_global = None
         self._drag_pos = None
 
+    def save_state(self):
+        """退出前落盘位置与缩放，保证下次启动恢复到上次的位置和大小。"""
+        self.config.set("pet_pos", [self.x(), self.y()])
+        self.config.set("pet_scale", round(self._scale, 3))
+
+    def recall_to_center(self):
+        """一键召回：不改变大小，把桌宠放到当前屏幕的正中间。"""
+        screen = QApplication.screenAt(self.frameGeometry().center()) or QApplication.primaryScreen()
+        geo = screen.availableGeometry()
+        self.move(geo.x() + max(0, (geo.width() - self.width()) // 2),
+                  geo.y() + max(0, (geo.height() - self.height()) // 2))
+        self.config.set("pet_pos", [self.x(), self.y()])
+
     def _play_interact_once(self):
         """左键单击：互动 GIF 从头播放一遍，播完自动恢复常态图。
 
