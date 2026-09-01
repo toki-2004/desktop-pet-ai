@@ -496,6 +496,10 @@ check("app-level: balance selftest wired", pet2.window.balance_label.text() == "
 check("app-level: prompt includes work state", "工作状态" in pet2._system_prompt())
 check("prompt includes current time",
       re.search(r"当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", pet2._system_prompt()) is not None)
+check("prompt tag translated to neutral zh",
+      "天气晴朗" in pet2._system_prompt("weather_sunny")
+      and "weather_sunny" not in pet2._system_prompt("weather_sunny")
+      and "深夜时段" in pet2._system_prompt("time_midnight"))
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()

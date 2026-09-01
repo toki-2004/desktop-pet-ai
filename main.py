@@ -60,6 +60,35 @@ def _input_idle_seconds():
     return 0.0
 
 
+# 情境标签 -> 中性中文描述（不直接给英文参数，避免 AI 对 weather_sunny 之类
+# 联想出"太阳出来"等时间敏感内容；具体天气已由"当前天气"行给出）。
+TAG_ZH = {
+    "time_morning": "晨间时段",
+    "time_noon": "午间时段",
+    "time_afternoon": "午后时段",
+    "time_evening": "晚间时段",
+    "time_midnight": "深夜时段",
+    "time_weekend": "周末时段",
+    "health": "久坐健康提醒",
+    "attention": "主人长时间未互动",
+    "affection_high": "好感度达到高位",
+    "affection_mid": "好感度保持中等",
+    "affection_low": "好感度处于低位",
+    "work_up": "余额增加",
+    "work_down": "余额减少",
+    "work_flat": "余额平稳",
+    "weather_sunny": "天气晴朗",
+    "weather_cloudy": "天气多云",
+    "weather_rainy": "天气有雨",
+    "weather_snowy": "天气有雪",
+    "weather_foggy": "天气有雾",
+    "weather_windy": "天气有风",
+    "weather_stormy": "天气有风暴",
+    "weather": "天气变化",
+    "random": "随机闲聊",
+}
+
+
 class SelfTalkMonitor(QObject):
     """情境自言自语：触发逻辑同原版（时段/健康/求关注/好感/天气/随机），
     命中标签后不再查语录库，而是发出 request_talk 信号，由 AI 生成文本。"""
@@ -273,7 +302,7 @@ class DesktopPet:
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)
         if tag:
-            parts.append("本次触发情境标签：%s。" % tag)
+            parts.append("本次触发情境：%s。" % TAG_ZH.get(tag, tag))
         parts.append("回复要非常简短（一两句话），不要复述情境描述。")
         return "\n".join(parts)
 
