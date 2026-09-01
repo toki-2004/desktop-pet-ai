@@ -88,8 +88,7 @@ class ChatInput(QLineEdit):
         font.setPointSize(fs)
         font.setBold(True)
         self.setFont(font)
-        self.adjustSize()
-        self.setFixedWidth(max(180, self.sizeHint().width() + 16))
+        self.adjustSize()  # 宽度由 PetWindow._place_input 按标签组总宽统一控制
         if self.pet_window is not None:
             self.pet_window._place_input()
 
@@ -613,17 +612,12 @@ class PetWindow(QWidget):
         StatusLabel 构造期间会回调到这里，此时其余标签可能尚未挂到 self 上；
         互动 GIF 播放中整组冻结在常态位置不动。
         """
+        labels = self._status_group_labels()
         status = getattr(self, "status_label", None)
+        if status is None or not labels:
+            return
         aff = getattr(self, "affection_label", None)
         work = getattr(self, "work_label", None)
-        if status is None:
-            return
-        labels = []
-        if aff is not None and bool(self.config.get("affection_label_enabled", True)):
-            labels.append(aff)
-        labels.append(status)
-        if work is not None and bool(self.config.get("work_label_enabled", True)):
-            labels.append(work)
         aff_on = aff in labels
         work_on = work in labels
         rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
@@ -648,6 +642,27 @@ class PetWindow(QWidget):
         if work_on:
             work.move(x, y)
         self._place_input()
+
+    def _status_group_labels(self):
+        """当前参与并排的标签列表（与配置开关一致，供排版与输入框宽度共用）。"""
+        labels = []
+        aff = getattr(self, "affection_label", None)
+        status = getattr(self, "status_label", None)
+        work = getattr(self, "work_label", None)
+        if aff is not None and bool(self.config.get("affection_label_enabled", True)):
+            labels.append(aff)
+        if status is not None:
+            labels.append(status)
+        if work is not None and bool(self.config.get("work_label_enabled", True)):
+            labels.append(work)
+        return labels
+
+    def _label_group_width(self):
+        """三标签组的总宽（含间距），输入框宽度跟随它以便与标签组对齐。"""
+        labels = self._status_group_labels()
+        if not labels:
+            return 0
+        return sum(l.width() for l in labels) + 6 * max(0, len(labels) - 1)
 
     def _place_balance(self):
         """余额文本：默认在桌宠左上角（可用 offset 记忆拖动位置）。"""
@@ -678,10 +693,14 @@ class PetWindow(QWidget):
         self._place_status()
 
     def _place_input(self):
-        """聊天输入框：默认在标签组正下方居中，用户可拖动后按偏移记忆。"""
+        """聊天输入框：宽度始终等于标签组总宽（可完美对齐），
+        默认在标签组正下方居中，用户可拖动后按偏移记忆。"""
         box = getattr(self, "chat_input", None)
         if box is None:
             return
+        group_w = self._label_group_width()
+        if group_w > 0:
+            box.setFixedWidth(group_w)
         off = self.config.get("chat_input_offset")
         if isinstance(off, list) and len(off) == 2:
             box.move(self.x() + int(off[0]), self.y() + int(off[1]))

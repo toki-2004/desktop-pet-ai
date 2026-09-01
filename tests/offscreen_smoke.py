@@ -337,6 +337,20 @@ check("wheel zoom in/out returns to original size",
       (pet.affection_label.width(), pet.affection_label.height()) == (w0, h0),
       (w0, h0, pet.affection_label.width(), pet.affection_label.height()))
 
+group_total = pet.affection_label.width() + 6 + pet.status_label.width() + 6 + pet.work_label.width()
+check("chat input width matches label group",
+      pet.chat_input.width() == group_total,
+      (pet.chat_input.width(), group_total))
+pet._font_size_pending = 20
+pet._refresh_fonts()
+app.processEvents()
+group_total2 = pet.affection_label.width() + 6 + pet.status_label.width() + 6 + pet.work_label.width()
+check("chat input width follows group on font change",
+      pet.chat_input.width() == group_total2,
+      (pet.chat_input.width(), group_total2))
+pet._font_size_pending = None
+pet._refresh_fonts()
+
 _chat_pm = pet.chat_input.grab()
 _chat_img = _chat_pm.toImage()
 check("chat input rounded corners transparent",
