@@ -182,6 +182,14 @@ class SettingsDialog(QDialog):
         model_lay.addWidget(self.model_combo, 1)
         model_lay.addWidget(self.model_refresh)
         form.addRow("模型名", model_row)
+
+        self.web2api_msgs = QSpinBox()
+        self.web2api_msgs.setRange(0, 500)
+        self.web2api_msgs.setValue(int(self.config.get("ai_web2api_max_messages", 20)))
+        self.web2api_msgs.setSuffix(" 条/对话")
+        self.web2api_msgs.setToolTip("每个 DeepSeek 网页对话最多容纳的消息数，达到后自动开新对话（0=不限制）")
+        form.addRow("内置对话消息上限", self.web2api_msgs)
+
         self.preset_combo.currentIndexChanged.connect(self._apply_preset)
         self._apply_preset(keep=True)
         self.models_loaded.connect(self._on_models_loaded)
@@ -408,6 +416,7 @@ class SettingsDialog(QDialog):
         self.config.set("ai_context_n", self.ctx_spin.value())
         self.config.set("ai_fallback_enabled", self.fallback_check.isChecked())
         self.config.set("ai_fallback_text", self.fallback_edit.text().strip() or "唔……我现在有点短路了")
+        self.config.set("ai_web2api_max_messages", self.web2api_msgs.value())
         self.config.set("self_talk_enabled", self.talk_check.isChecked())
         self.config.set("self_talk_interval", self.talk_interval.value())
         self.accept()

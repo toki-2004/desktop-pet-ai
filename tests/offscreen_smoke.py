@@ -193,6 +193,8 @@ check("settings has AI preset combo",
       and dlg.preset_combo.currentData() in PRESETS)
 check("settings model combo editable",
       hasattr(dlg, "model_combo") and dlg.model_combo.isEditable())
+check("settings has web2api message limit spin",
+      hasattr(dlg, "web2api_msgs") and dlg.web2api_msgs.value() == int(cfg_aff.get("ai_web2api_max_messages", 20)))
 
 dlg_m = SettingsDialog(cfg_aff)
 dlg_m._on_models_loaded(["deepseek", "deepseek-thinking"], True)
@@ -277,6 +279,14 @@ check("chat input font synced", pet.chat_input.font().pointSize() == fs1)
 pet._save_font_size()
 check("font size persisted", int(cfg.get("balance_font_size")) == fs1)
 
+check("affection below status with 2px gap",
+      pet.affection_label.y() == pet.status_label.y() + pet.status_label.height() + 2,
+      (pet.affection_label.y(), pet.status_label.y(), pet.status_label.height()))
+check("affection centered under status",
+      abs((pet.affection_label.x() + pet.affection_label.width() // 2)
+          - (pet.status_label.x() + pet.status_label.width() // 2)) <= 1,
+      (pet.affection_label.x(), pet.status_label.x()))
+
 old_aff_pos = (pet.affection_label.x(), pet.affection_label.y())
 pet.move(pet.x() + 40, pet.y() + 20)
 app.processEvents()
@@ -299,7 +309,7 @@ pet.wheelEvent(QWheelEvent(QPointF(5, 5), QPointF(5, 5),
 app.processEvents()
 check("shrink pet: status label follows bottom", pet.status_label.y() <= zoom_status_y)
 check("shrink pet: affection label follows too",
-      pet.affection_label.y() == pet.status_label.y(),
+      pet.affection_label.y() == pet.status_label.y() + pet.status_label.height() + 2,
       (zoom_aff_y, pet.affection_label.y(), pet.status_label.y()))
 
 # 10. AI presets structure
@@ -333,6 +343,13 @@ check("web2api service_alive on 401 (key mismatch)", w2a.service_alive() is True
 w2a.requests.get = lambda *a, **k: (_ for _ in ()).throw(OSError())
 check("web2api service_alive False on error", w2a.service_alive() is False)
 w2a.requests.get = orig_get
+
+_restart_calls = []
+_orig_restart = w2a._restart_for_config
+w2a._restart_for_config = lambda: _restart_calls.append(1)
+w2a.apply_max_messages(20)  # 与当前 vendor 配置相同：不应触发重启
+check("apply_max_messages no-op when unchanged", _restart_calls == [])
+w2a._restart_for_config = _orig_restart
 
 dlg_rb = SettingsDialog(cfg, rebind_callback=lambda: None)
 check("settings has rebind button with callback",

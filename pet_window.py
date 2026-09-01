@@ -434,16 +434,17 @@ class PetWindow(QWidget):
         self._place_input()
 
     def _place_affection(self):
-        """好感标签：紧贴时段/工作状态组的左侧同一行。"""
+        """好感标签：位于时段/工作状态标签正下方，间隔 2px，水平居中。"""
         status = getattr(self, "status_label", None)
         aff = getattr(self, "affection_label", None)
         if status is None or aff is None or not aff.isVisible():
             return
-        gap = 6
-        aff.move(status.x() - aff.width() - gap, status.y())
+        aff.move(status.x() + (status.width() - aff.width()) // 2,
+                 status.y() + status.height() + 2)
+        self._place_input()
 
     def _place_input(self):
-        """聊天输入框：默认在时段标签正下方居中，用户可拖动后按偏移记忆。"""
+        """聊天输入框：默认在好感/时段标签正下方居中，用户可拖动后按偏移记忆。"""
         box = getattr(self, "chat_input", None)
         if box is None:
             return
@@ -454,8 +455,12 @@ class PetWindow(QWidget):
             status = getattr(self, "status_label", None)
             if status is None:
                 return
+            bottom = status
+            aff = getattr(self, "affection_label", None)
+            if aff is not None and aff.isVisible():
+                bottom = aff
             box.move(self.x() + max(0, (self.width() - box.width()) // 2),
-                     status.y() + status.height() + 6)
+                     bottom.y() + bottom.height() + 6)
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):

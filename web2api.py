@@ -8,6 +8,7 @@ vendor/DeepSeekWeb2API 是 D:\\pythonitems\\DeepSeekWeb2API 的本地拷贝
 - 已绑定则后台静默启动服务，桌宠退出时停止自己拉起的进程。
 """
 import atexit
+import json
 import os
 import subprocess
 import sys
@@ -119,6 +120,32 @@ def kill_port_listener():
         if not service_alive():
             return
         threading.Event().wait(0.3)
+
+
+def apply_max_messages(n):
+    """同步内置服务的对话消息上限：写 vendor 配置；运行中值不同则后台重启服务生效。"""
+    try:
+        path = os.path.join(VENDOR_DIR, "config.json")
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        cur = int((d.get("conversation") or {}).get("maxMessages", 20))
+        n = int(n)
+        if cur == n:
+            return
+        d.setdefault("conversation", {})["maxMessages"] = n
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=2)
+    except Exception:
+        return
+    threading.Thread(target=_restart_for_config, daemon=True).start()
+
+
+def _restart_for_config():
+    """配置变化后重启自己拉起的服务（外部服务不强制重启，下次启动自然生效）。"""
+    if not service_alive():
+        return
+    stop_service()
+    start_service()
 
 
 atexit.register(stop_service)

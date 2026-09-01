@@ -418,6 +418,7 @@ class DesktopPet:
         self._settings_dlg = None
         self.window.apply_config()
         self.talk._schedule()
+        web2api.apply_max_messages(self.config.get("ai_web2api_max_messages", 20))
         self.affection.apply_config()
         if self._balloon is not None:
             self._balloon.set_top_flag(bool(self.config.get("always_on_top", True)))
