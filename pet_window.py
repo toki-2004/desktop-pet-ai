@@ -835,10 +835,12 @@ class PetWindow(QWidget):
         lab.setStyleSheet("color:%s; background:transparent;" % color)
         # 不用 sizeHint：真实字体下可能偏小导致截断；用字体度量显式计算，
         # 并强制居中（QLabel 默认左对齐，窗口加宽后文字会偏左）。
+        # 字体回退/DPI 舍入会使实际渲染宽度略大于度量值，浮动文字均为短文本，
+        # 直接留足空间（左右各约 32px），彻底避免两侧被裁。
         lab.setAlignment(Qt.AlignCenter)
         fm = QFontMetrics(lab.font())
-        lab.resize(max(fm.horizontalAdvance(text), lab.sizeHint().width()) + 16,
-                   max(fm.height(), lab.sizeHint().height()) + 8)
+        lab.resize(max(fm.horizontalAdvance(text), lab.sizeHint().width()) + 64,
+                   max(fm.height(), lab.sizeHint().height()) + 12)
         geo = self.geometry()
         screen = QApplication.screenAt(geo.center())
         avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()

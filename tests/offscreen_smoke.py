@@ -524,7 +524,7 @@ check("float text: label created", len(_floats) == 1)
 if _floats:
     _fl = _floats[0]
     check("float text: width fits text",
-          _fl.width() >= _fl.fontMetrics().horizontalAdvance(_ft_text) + 14,
+          _fl.width() >= _fl.fontMetrics().horizontalAdvance(_ft_text) + 60,
           (_fl.width(), _fl.fontMetrics().horizontalAdvance(_ft_text)))
     check("float text: centered alignment",
           int(_fl.alignment()) == int(Qt.AlignCenter), int(_fl.alignment()))
