@@ -17,6 +17,19 @@ def parse_account(acc):
     return acc.get("platform", "deepseek"), acc.get("api_key", "")
 
 
+def normalize_total(total):
+    """余额归一：|总额| < 0.005 视为 0。
+
+    部分平台接口会返回 -0.0 / 极小负值，直接显示会变成 "-¥0.00"，
+    并被余额方向逻辑误判为"余额下降=工作中"（其实根本没开始工作）。
+    """
+    try:
+        total = float(total)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if abs(total) < 0.005 else total
+
+
 class BalanceMonitor(QObject):
     balanceUpdated = pyqtSignal(float, str)  # 总额, 显示文本
     balanceUp = pyqtSignal(str)              # 增加动画文本
@@ -97,6 +110,7 @@ class BalanceMonitor(QObject):
                 self.fetchError.emit("；".join(errors))
                 return
 
+            total = normalize_total(total)
             text = "¥%.2f" % total
             petlog.log("balance fetch ok: %s (emit from thread %s)" % (text, threading.get_ident()))
             if self._last_total is None or abs(total - self._last_total) < 0.005:

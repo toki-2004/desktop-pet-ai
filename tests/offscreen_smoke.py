@@ -304,6 +304,28 @@ check("affection left of status, work right of status",
       pet.affection_label.x() + pet.affection_label.width() + 6 == pet.status_label.x()
       and pet.status_label.x() + pet.status_label.width() + 6 == pet.work_label.x(),
       (pet.affection_label.x(), pet.status_label.x(), pet.work_label.x()))
+group_center = (pet.affection_label.x() + pet.work_label.x() + pet.work_label.width()) // 2
+pet_center = pet.x() + pet.width() // 2
+check("label group centered on pet image", abs(group_center - pet_center) <= 1,
+      (group_center, pet_center))
+h_small = pet.status_label.height()
+pet._font_size_pending = 22
+pet._refresh_fonts()
+app.processEvents()
+check("label height adapts to font size",
+      pet.status_label.height() > h_small
+      and pet.affection_label.height() == pet.status_label.height()
+      and pet.work_label.height() == pet.status_label.height(),
+      (h_small, pet.status_label.height()))
+pet._font_size_pending = None
+pet._refresh_fonts()
+
+_chat_pm = pet.chat_input.grab()
+_chat_img = _chat_pm.toImage()
+check("chat input rounded corners transparent",
+      _chat_img.pixelColor(1, 1).alpha() == 0, _chat_img.pixelColor(1, 1).alpha())
+check("chat input paints content",
+      _chat_img.pixelColor(_chat_img.width() // 2, _chat_img.height() // 2).alpha() > 0)
 
 old_aff_pos = (pet.affection_label.x(), pet.affection_label.y())
 pet.move(pet.x() + 40, pet.y() + 20)
@@ -404,6 +426,12 @@ w2a._restart_for_config = lambda: _restart_calls.append(1)
 w2a.apply_max_messages(20)  # 与当前 vendor 配置相同：不应触发重启
 check("apply_max_messages no-op when unchanged", _restart_calls == [])
 w2a._restart_for_config = _orig_restart
+
+import balance as balance_mod  # noqa: E402
+check("balance normalize clamps tiny negative",
+      balance_mod.normalize_total(-0.004) == 0.0
+      and balance_mod.normalize_total(12.34) == 12.34
+      and balance_mod.normalize_total(None) == 0.0)
 
 dlg_rb = SettingsDialog(cfg, rebind_callback=lambda: None)
 check("settings has rebind button with callback",

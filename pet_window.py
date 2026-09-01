@@ -60,6 +60,12 @@ class ChatInput(QLineEdit):
         self.pet_window = parent
         self._drag_pos = None
         self.setPlaceholderText("和桌宠说点什么…")
+        # 原生 QLineEdit 行为：空文本获得焦点时占位符自动消失、出现跳动光标
+        # （像浏览器搜索栏）；自定义 paintEvent 只画圆角背景，文本/光标/占位符
+        # 交给原生绘制，避免占位符与光标被手绘盖掉。
+        self.setFrame(False)
+        self.setStyleSheet("QLineEdit { background: transparent; border: none; }")
+        self.setTextMargins(8, 3, 8, 3)
         self.returnPressed.connect(self._send)
         self._apply_style()
 
@@ -94,9 +100,8 @@ class ChatInput(QLineEdit):
         p.setPen(QPen(QColor("#3D8BFF"), 1))
         p.setBrush(QBrush(QColor(255, 255, 255, 235)))
         p.drawRoundedRect(rect, 8, 8)
-        p.setPen(QColor(0, 0, 0))
-        p.drawText(rect.adjusted(8, 3, -8, -3), Qt.AlignLeft | Qt.AlignVCenter,
-                   self.text() or self.placeholderText())
+        p.end()
+        super().paintEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -623,13 +628,16 @@ class PetWindow(QWidget):
         work_on = work in labels
         rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
         y = rect.y() + rect.height()
-        # 相同高度：以三个标签中的最高者为统一高度
-        h = max(l.height() for l in labels)
+        # 相同高度且随字号自适应：以当前字体的内容高度（sizeHint）为准，
+        # 取三者最大为统一高度；避免 setFixedHeight 锁死后字号变化高度不跟
+        h = max(max(18, l.sizeHint().height() + 6) for l in labels)
         for l in labels:
             l.setFixedHeight(h)
+            l.resize(max(24, l.sizeHint().width() + 16), h)
         gap = 6
         total = sum(l.width() for l in labels) + gap * max(0, len(labels) - 1)
-        x = rect.x() + max(0, (rect.width() - total) // 2)
+        # 中轴线对齐：即使标签组比桌宠图片还宽，也保持组中心 == 图片中心
+        x = rect.x() + (rect.width() - total) // 2
         if aff_on:
             aff.move(x, y)
             x += aff.width() + gap
