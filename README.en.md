@@ -1,137 +1,130 @@
-# desktop-pet-ai · AI Desktop Pet
+# desktop-pet-ai · Free AI Desktop Pet
 
-> **Language:** English | [中文](README.md)
+> **Language:** English | [简体中文](README.md)
 
-A PyQt5-based AI-driven desktop pet: transparent, always-on-top, draggable and
-scalable. All text (self-talk / head-pat reactions / chat replies) is generated
-in real time by an OpenAI-compatible API — no quote libraries at all.
+A desktop pet that lives on your screen: it talks to itself, reacts to head pats,
+and chats with you — every word generated live by AI. **Built-in free AI
+(DeepSeekWeb2API)** means one first-time login with a web DeepSeek account, then
+zero-cost chatting with no API key at all.
+
+## Highlights
+
+- **Completely free**: a bundled local DeepSeekWeb2API service. Log in to the
+  web DeepSeek account once; no paid API key ever needed.
+- **AI generates everything in real time**: self-talk, head-pat reactions and
+  chat replies come straight from the model — no repetitive quote banks.
+  Customize the persona; behavior adapts to time of day, weather, affection
+  tier, work status and more.
+- **Switch AI providers anytime**: besides the built-in free service, switch to
+  the DeepSeek Open Platform / SiliconFlow / Kimi / any OpenAI-compatible
+  endpoint; presets auto-fetch the platform's model list.
+- **It remembers**: an affection system plus chat-history context means the AI
+  knows what you've talked about.
 
 ## Features
 
-1. **Real-time AI generation**: self-talk, head-pat reactions and chat replies
-   all call an OpenAI-compatible `/v1/chat/completions` endpoint; the system
-   prompt combines persona + context (time of day, affection tier, weather,
-   trigger tag) + recent conversation history.
-2. **Built-in free AI (DeepSeekWeb2API)**: the project embeds
-   `vendor/DeepSeekWeb2API` (portable Node build, prepared locally, not in
-   Git). On first launch a DeepSeek login browser pops up; after you log in
-   and close the console window the service starts on `127.0.0.1:3000` and
-   later launches stay silent. If the login expires, click "Rebind" in
-   settings. If a web2api service is already listening on port 3000, it is
-   reused as-is.
-3. **Provider presets**: the settings page offers a preset dropdown —
-   DeepSeekWeb2API (built-in free) / SiliconFlow / Kimi / Custom. Picking a
-   preset fills in base_url and auto-fetches candidate models from the
-   platform's `/v1/models` into a model dropdown (still manually editable);
-   cloud services only need an API key.
-4. **Chat input**: an always-visible input box below the pet (draggable,
-   wheel-adjustable font size, remembered position); press Enter to chat.
-5. **Head-pat reaction**: a single click plays the head-pat animation once and
-   triggers an AI reaction; press-and-hold = drag, which does not trigger.
-6. **Contextual self-talk**: same trigger logic as the original — time-of-day
-   windows (morning/noon/afternoon/evening/midnight, once per day each),
-   weekends, a 45-minute sedentary reminder, a 90-minute no-interaction
-   attention seeker, affection-tier changes, weather changes (auto IP
-   location + Open-Meteo) and random chatter at a configurable interval.
-6. **Chat history**: all messages (including self-talk) are persisted to JSON
-   with a configurable cap, surviving restarts; view them via the tray menu's
-   "Chat history…". Context length is configurable and only user/assistant
-   messages are sent.
-7. **Failure fallback**: when a request fails, a fallback text
-   ("Hmm… I'm short-circuiting a bit") is shown; it can be turned off.
-8. **Thought-cloud notifications**: actions pop a cloud bubble with
-   customizable fill/outline colors, text and font size.
-9. **Appearance**: import PNG/GIF skins; the head-pat animation (GIF, plays
-   once, transparent background) and window always-on-top are switchable
-   (default skin `assets/ds拟人.png`, default head-pat animation
-   `assets/ds拟人_q.gif`).
-10. **Affection system**: petting/interaction raises affection, idleness
-    decays it over time; high/mid/low tiers shape the AI's tone and triggers;
-    an "affection" badge can be shown, and every parameter (initial, cap,
-    gain, decay, thresholds) is configurable.
-11. **Period status label**: peak/idle status label stays visible
-    (customizable text), confirmed via bubble.
-12. **Position/size memory & one-click recall**: position and size are saved on
-    exit and restored on the next launch; the tray menu's "Recall to center"
-    moves the pet to the center of the current screen without resizing it, so
-    it can always be brought back even if it was dragged off-screen.
-13. **Multi-platform balance query**: bind DeepSeek / Kimi / SiliconFlow
-    accounts in the settings "Balance" tab and the balance is polled on an
-    interval; the balance label stays at the pet's top-left (draggable, wheel
-    font size, toggled from the right-click menu), with floating animations on
-    increases/decreases.
-14. **Work status label + AI awareness**: work state is derived from balance
-    changes (decrease = working, flat = idle, increase = topped up) and shown
-    right of the period label; the state is also injected into the AI prompt,
-    and state changes trigger AI speech (throttled per direction).
+1. **Free AI chat**: an always-visible input box below the pet; press Enter to chat.
+2. **AI self-talk**: triggered by time, weather, idle reminders, attention
+   seeking, affection tiers, work status, etc.
+3. **Head-pat interaction**: click the pet to play a bouncy animation and get an
+   AI reaction.
+4. **Affection system**: petting raises affection, idleness decays it; tiers
+   shape the AI's tone, with an always-visible badge.
+5. **Work-status awareness**: after binding a balance account, work state
+   (working / idle / topped up) is derived from balance changes and injected
+   into the AI prompt; the AI speaks on state changes.
+6. **Balance query**: multi-platform accounts (DeepSeek / Kimi / SiliconFlow),
+   with the balance label always visible at the pet's top-left.
+7. **Context label group**: affection / period / work-status labels sit side by
+   side below the pet.
+8. **Weather awareness**: auto geo-location + Open-Meteo weather; it will chat
+   about rain.
+9. **Chat history**: persisted to JSON; the history dialog opens scrolled to the
+   latest message.
+10. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
+    one-click recall (never get stuck off-screen).
+11. **The usual desktop-pet stuff**: auto-start, tray control, always-on-top.
 
-AI messages never use force notifications: they appear as bubbles/labels, and
-chat content is persisted for later reading.
+## Screenshots
 
-## Requirements
+(To be added: pet appearance / chat example / settings page)
 
-- Windows 10/11
-- Python 3.9+
-- Dependencies: PyQt5, requests, Pillow (see `requirements.txt`)
-- For the built-in free AI, place a DeepSeekWeb2API portable bundle under
-  `vendor/DeepSeekWeb2API` (node/, node_modules/, src/, config.json; not
-  included in the repo), or use any cloud OpenAI-compatible key
+## Getting started
 
-## Install & run
+### Option 1: download the release (recommended)
+
+1. Grab the latest `DesktopPet-vX.Y.Z.zip` from
+   [Releases](https://github.com/toki-2004/desktop-pet-ai/releases), unzip and
+   double-click `DesktopPet.exe`.
+2. **On first launch a DeepSeek login browser pops up**: log in with your
+   DeepSeek account, then close the console window — the built-in free AI is
+   ready (no popup on later launches).
+3. Just talk to the pet: type in the input box and press Enter; click it to pat
+   its head; right-click the tray icon for more.
+
+### Option 2: run from source
 
 ```bash
 pip install -r requirements.txt
 python main.py
 ```
 
-First use: right-click the tray icon (or the pet) → Notification settings →
-AI tab → pick a preset and enter your API key (model is editable).
+(From source you also need the local vendor bundle for the built-in AI, or use a
+cloud preset — see "AI settings".)
 
-> The local DeepSeekWeb2API endpoint defaults to `http://127.0.0.1:8000/v1`;
-> use the port from that project's `config.json`.
+### Common actions
 
-## Usage
+- **Chat**: press Enter in the input box below the pet.
+- **Head pat**: left-click the pet (animation + AI reaction); press-and-drag to
+  move (position remembered automatically).
+- **Zoom**: hover over the pet and scroll the wheel.
+- **Tray**: left-click toggles show/hide; right-click menu: recall to center,
+  chat history, auto-start, settings, change skin, quit.
+- **AI settings**: right-click → Settings → AI tab: provider presets (built-in
+  free / DeepSeek Open Platform / SiliconFlow / Kimi / Custom); picking a preset
+  auto-lists its models; base URL / key / model can also be edited manually.
+- **Balance**: Settings → Balance tab to add accounts (DeepSeek / Kimi /
+  SiliconFlow).
 
-- **Left-drag**: move the pet (auto-saved); **wheel**: zoom.
-- **Left-click**: play head-pat animation + AI reaction; rapid clicks restart
-  it; dragging does not trigger.
-- **Chat input**: press Enter to send; draggable, wheel adjusts font size.
-- **Tray**: left-click shows/hides the pet; right-click menu: chat history,
-  autostart, notification settings, appearance, test notification, quit.
+### Login expired?
+
+Click "Rebind" on the settings AI tab — the DeepSeek login browser pops up again.
+
+## Requirements
+
+- Windows 10/11 (the packaged version needs no Python)
+- From source: Python 3.9+, dependencies in `requirements.txt`
 
 ## Configuration
 
-`config.json` sits in the project root (auto-generated, atomic writes with a
-`.bak` backup). Common keys:
+`config.json` is auto-generated next to the program (atomic writes + `.bak`
+backup). Common keys:
 
-- Notification/appearance: `balloon_fill`, `balloon_outline`, `balloon_text`,
-  `balance_font_size` (global font size), `pet_image`, `pet_interact_image`,
-  `pet_scale`, `pet_pos`, `always_on_top`;
+- Look/layout: `pet_image`, `pet_interact_image`, `pet_scale`, `pet_pos`,
+  `balance_font_size` (global font), `always_on_top`;
 - Affection: `affection_*` (enabled/initial/cap/gain/decay/thresholds/badge);
-- Self-talk: `self_talk_enabled`, `self_talk_interval` (random chatter, seconds);
 - AI: `ai_preset`, `ai_base_url`, `ai_api_key`, `ai_model`, `ai_persona`,
-  `ai_context_n` (context messages), `ai_fallback_enabled`, `ai_fallback_text`;
-- History: `chat_history_max` (persistence cap), `chat_input_offset` (input
-  box position);
-- `auto_start`: launch at login (synced with the registry Run key).
+  `ai_context_n`, `ai_fallback_enabled`, `ai_web2api_max_messages`;
+- Balance/work status: `accounts`, `poll_interval_sec`, `show_balance`,
+  `work_label_enabled`, `work_state_hold_sec`;
+- Others: `self_talk_enabled`, `self_talk_interval`, `chat_history_max`,
+  `auto_start`.
 
 ## Development & testing
 
-Offscreen self-check (no GUI needed; covers GIF playback, click/drag split,
-affection, triggers, history, input box, weather):
-
 ```bash
-python tests/offscreen_smoke.py
+python tests/offscreen_smoke.py   # offscreen self-check (90 checks)
+PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
 ```
-
-Smoke run: `PET_SMOKE=1 python main.py` (auto-exits, exit 0 = pass).
 
 ## Related projects
 
-* [png-q-bounce](https://github.com/toki-2004/png-q-bounce): turn one PNG into
-  a bouncy GIF (plays once, transparent background) — usable as the head-pat
-  animation skin.
+* [desktop-pet](https://github.com/toki-2004/desktop-pet) (archived): the
+  original project this one evolved from.
+* [png-q-bounce](https://github.com/toki-2004/png-q-bounce): turn one PNG into a
+  bouncy GIF (plays once, transparent background) — usable as a head-pat skin.
 
 ## Security note
 
-`ai_api_key` in `config.json` is stored in plain text — never commit or share it.
+`ai_api_key` and balance account keys in `config.json` are stored in plain text —
+never commit or share them.

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt5.QtCore import QEventLoop, QTimer, QEvent, QPointF, QPoint, Qt  # noqa: E402
 from PyQt5.QtGui import QImage, QMouseEvent  # noqa: E402
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QPlainTextEdit  # noqa: E402
 
 from affection import AffectionSystem  # noqa: E402
 from ai_client import PRESETS  # noqa: E402
@@ -292,13 +292,18 @@ check("chat input font synced", pet.chat_input.font().pointSize() == fs1)
 pet._save_font_size()
 check("font size persisted", int(cfg.get("balance_font_size")) == fs1)
 
-check("affection below status with 2px gap",
-      pet.affection_label.y() == pet.status_label.y() + pet.status_label.height() + 2,
-      (pet.affection_label.y(), pet.status_label.y(), pet.status_label.height()))
-check("affection centered under status",
-      abs((pet.affection_label.x() + pet.affection_label.width() // 2)
-          - (pet.status_label.x() + pet.status_label.width() // 2)) <= 1,
-      (pet.affection_label.x(), pet.status_label.x()))
+check("labels side by side same row",
+      pet.affection_label.y() == pet.status_label.y()
+      and pet.work_label.y() == pet.status_label.y(),
+      (pet.affection_label.y(), pet.status_label.y(), pet.work_label.y()))
+check("labels same height",
+      pet.affection_label.height() == pet.status_label.height()
+      and pet.work_label.height() == pet.status_label.height(),
+      (pet.affection_label.height(), pet.status_label.height(), pet.work_label.height()))
+check("affection left of status, work right of status",
+      pet.affection_label.x() + pet.affection_label.width() + 6 == pet.status_label.x()
+      and pet.status_label.x() + pet.status_label.width() + 6 == pet.work_label.x(),
+      (pet.affection_label.x(), pet.status_label.x(), pet.work_label.x()))
 
 old_aff_pos = (pet.affection_label.x(), pet.affection_label.y())
 pet.move(pet.x() + 40, pet.y() + 20)
@@ -322,7 +327,7 @@ pet.wheelEvent(QWheelEvent(QPointF(5, 5), QPointF(5, 5),
 app.processEvents()
 check("shrink pet: status label follows bottom", pet.status_label.y() <= zoom_status_y)
 check("shrink pet: affection label follows too",
-      pet.affection_label.y() == pet.status_label.y() + pet.status_label.height() + 2,
+      pet.affection_label.y() == pet.status_label.y(),
       (zoom_aff_y, pet.affection_label.y(), pet.status_label.y()))
 
 # 9.6 一键召回：不改变大小，放到当前屏幕正中间；退出保存位置与缩放
@@ -348,7 +353,7 @@ check("balance/work labels exist",
 pet.work_label.show()
 pet._place_work()
 check("work label sits right of status label",
-      pet.work_label.x() > pet.status_label.x()
+      pet.work_label.x() == pet.status_label.x() + pet.status_label.width() + 6
       and pet.work_label.y() == pet.status_label.y(),
       (pet.work_label.x(), pet.status_label.x(), pet.work_label.y()))
 pet.work_label.set_state("down")
@@ -368,6 +373,10 @@ dlg_pk = SettingsDialog(cfg)
 dlg_pk.preset_combo.setCurrentIndex(list(PRESETS).index("deepseek_web2api"))
 dlg_pk._apply_preset()
 check("preset apply fills local key", dlg_pk.key_edit.text() == "sk-local")
+check("deepseek open platform preset exists",
+      "deepseek_open" in PRESETS
+      and PRESETS["deepseek_open"]["base_url"].startswith("https://api.deepseek.com")
+      and PRESETS["deepseek_open"]["model"] == "deepseek-chat")
 
 # 10.5 web2api manager: probe monkeypatched, rebind button wired
 import web2api as w2a  # noqa: E402
@@ -427,6 +436,11 @@ check("app-level: prompt includes work state", "工作状态" in pet2._system_pr
 pet2._open_history()
 app.processEvents()
 check("history dialog visible after processEvents", pet2._history_dlg.isVisible())
+_hist_views = pet2._history_dlg.findChildren(QPlainTextEdit)
+check("history dialog scrolled to latest",
+      bool(_hist_views)
+      and _hist_views[0].verticalScrollBar().value() == _hist_views[0].verticalScrollBar().maximum(),
+      (_hist_views[0].verticalScrollBar().value(), _hist_views[0].verticalScrollBar().maximum()) if _hist_views else None)
 pet2._open_settings(0)
 app.processEvents()
 check("settings dialog visible after _open_settings",

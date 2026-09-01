@@ -603,16 +603,41 @@ class PetWindow(QWidget):
         self._apply_scale()
 
     def _place_status(self):
-        # 时段状态放在桌宠正下部（用户指定）：文本框上缘紧贴桌宠窗口下缘，水平居中。
-        # StatusLabel 构造期间会回调到这里，此时 status_label 尚未挂到 self 上。
-        # 互动 GIF 播放中冻结在常态位置不动（用户指定）。
-        label = getattr(self, "status_label", None)
-        if label is None:
+        """时段/好感/工作状态三个标签并排一行（等高圆角矩形），整组居中在桌宠正下方。
+
+        StatusLabel 构造期间会回调到这里，此时其余标签可能尚未挂到 self 上；
+        互动 GIF 播放中整组冻结在常态位置不动。
+        """
+        status = getattr(self, "status_label", None)
+        aff = getattr(self, "affection_label", None)
+        work = getattr(self, "work_label", None)
+        if status is None:
             return
+        labels = []
+        if aff is not None and bool(self.config.get("affection_label_enabled", True)):
+            labels.append(aff)
+        labels.append(status)
+        if work is not None and bool(self.config.get("work_label_enabled", True)):
+            labels.append(work)
+        aff_on = aff in labels
+        work_on = work in labels
         rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
-        x = rect.x() + max(0, (rect.width() - label.width()) // 2)
-        label.move(x, rect.y() + rect.height())
-        self._place_work()
+        y = rect.y() + rect.height()
+        # 相同高度：以三个标签中的最高者为统一高度
+        h = max(l.height() for l in labels)
+        for l in labels:
+            l.setFixedHeight(h)
+        gap = 6
+        total = sum(l.width() for l in labels) + gap * max(0, len(labels) - 1)
+        x = rect.x() + max(0, (rect.width() - total) // 2)
+        if aff_on:
+            aff.move(x, y)
+            x += aff.width() + gap
+        status.move(x, y)
+        x += status.width() + gap
+        if work_on:
+            work.move(x, y)
+        self._place_input()
 
     def _place_balance(self):
         """余额文本：默认在桌宠左上角（可用 offset 记忆拖动位置）。"""
@@ -635,27 +660,15 @@ class PetWindow(QWidget):
         self.config.set("show_balance", bool(visible))
 
     def _place_work(self):
-        """工作状态标签：紧贴时段标签右侧同一行（独立定位，跟随各路径归位）。"""
-        status = getattr(self, "status_label", None)
-        work = getattr(self, "work_label", None)
-        if status is None or work is None or not work.isVisible():
-            self._place_affection()
-            return
-        work.move(status.x() + status.width() + 6, status.y())
-        self._place_affection()
+        """工作状态标签定位入口：整组并排由 _place_status 统一处理。"""
+        self._place_status()
 
     def _place_affection(self):
-        """好感标签：位于时段/工作状态标签正下方，间隔 2px，水平居中。"""
-        status = getattr(self, "status_label", None)
-        aff = getattr(self, "affection_label", None)
-        if status is None or aff is None or not aff.isVisible():
-            return
-        aff.move(status.x() + (status.width() - aff.width()) // 2,
-                 status.y() + status.height() + 2)
-        self._place_input()
+        """好感标签定位入口：整组并排由 _place_status 统一处理。"""
+        self._place_status()
 
     def _place_input(self):
-        """聊天输入框：默认在好感/时段标签正下方居中，用户可拖动后按偏移记忆。"""
+        """聊天输入框：默认在标签组正下方居中，用户可拖动后按偏移记忆。"""
         box = getattr(self, "chat_input", None)
         if box is None:
             return
@@ -666,12 +679,8 @@ class PetWindow(QWidget):
             status = getattr(self, "status_label", None)
             if status is None:
                 return
-            bottom = status
-            aff = getattr(self, "affection_label", None)
-            if aff is not None and aff.isVisible():
-                bottom = aff
             box.move(self.x() + max(0, (self.width() - box.width()) // 2),
-                     bottom.y() + bottom.height() + 6)
+                     status.y() + status.height() + 6)
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
     def mousePressEvent(self, event):

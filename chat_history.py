@@ -5,6 +5,7 @@ import os
 import time
 
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPlainTextEdit
+from PyQt5.QtGui import QTextCursor
 
 
 class ChatHistory:
@@ -60,5 +61,8 @@ class HistoryDialog(QDialog):
             prefix = "[%s] %s%s：" % (m.get("ts", ""), who, ("（%s）" % kind) if kind else "")
             lines.append(prefix + str(m.get("content", "")))
         view.setPlainText("\n\n".join(lines))
+        # 打开即定位到最新记录：光标移到末尾并滚动到底
+        view.moveCursor(QTextCursor.End)
+        view.verticalScrollBar().setValue(view.verticalScrollBar().maximum())
         lay = QVBoxLayout(self)
         lay.addWidget(view)

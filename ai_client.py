@@ -14,6 +14,11 @@ PRESETS = {
         "model": "deepseek",
         "key": "sk-local",  # 与 vendor/DeepSeekWeb2API/config.json 的 apiKey 一致
     },
+    "deepseek_open": {
+        "name": "DeepSeek 开放平台",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+    },
     "siliconflow": {
         "name": "硅基流动",
         "base_url": "https://api.siliconflow.cn/v1",
