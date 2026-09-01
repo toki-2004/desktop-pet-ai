@@ -21,7 +21,9 @@ in real time by an OpenAI-compatible API — no quote libraries at all.
    reused as-is.
 3. **Provider presets**: the settings page offers a preset dropdown —
    DeepSeekWeb2API (built-in free) / SiliconFlow / Kimi / Custom. Picking a
-   preset fills in base_url and model; cloud services only need an API key.
+   preset fills in base_url and auto-fetches candidate models from the
+   platform's `/v1/models` into a model dropdown (still manually editable);
+   cloud services only need an API key.
 4. **Chat input**: an always-visible input box below the pet (draggable,
    wheel-adjustable font size, remembered position); press Enter to chat.
 5. **Head-pat reaction**: a single click plays the head-pat animation once and

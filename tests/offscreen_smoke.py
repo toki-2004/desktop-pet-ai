@@ -183,12 +183,24 @@ aff.apply_config()
 check("affection low tier from config reload", aff.tier() == "low")
 
 # 6. settings: affection + AI controls
+# 测试里不发起真实模型列表请求（避免依赖网络/服务状态）
+SettingsDialog._fetch_models = lambda self: None
 dlg = SettingsDialog(cfg_aff)
 check("settings has affection controls",
       hasattr(dlg, "aff_check") and hasattr(dlg, "aff_gain"))
 check("settings has AI preset combo",
       hasattr(dlg, "preset_combo") and hasattr(dlg, "base_edit")
       and dlg.preset_combo.currentData() in PRESETS)
+check("settings model combo editable",
+      hasattr(dlg, "model_combo") and dlg.model_combo.isEditable())
+
+dlg_m = SettingsDialog(cfg_aff)
+dlg_m._on_models_loaded(["deepseek", "deepseek-thinking"], True)
+check("models_loaded fills combo",
+      dlg_m.model_combo.count() == 2
+      and [dlg_m.model_combo.itemText(i) for i in range(2)] == ["deepseek", "deepseek-thinking"])
+dlg_m._on_models_loaded([], False)
+check("models load failure keeps editable input", dlg_m.model_combo.isEditable())
 
 # 7. SelfTalkMonitor: emits tags (no quote pools anymore)
 cfg2 = Config(os.path.join(tmp, "config_selftalk.json"))

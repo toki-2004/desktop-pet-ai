@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """设置对话框：通知、外观、好感、AI 连接（OpenAI 兼容 + 厂商预设）。"""
-from PyQt5.QtCore import Qt
+import threading
+
+import requests
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QPixmap
 from PyQt5.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -18,6 +21,8 @@ DEFAULT_PERSONA = (
 
 
 class SettingsDialog(QDialog):
+    models_loaded = pyqtSignal(list, bool)  # (模型 id 列表, 是否成功)
+
     def __init__(self, config, initial_tab=0, rebind_callback=None):
         super().__init__()
         self.config = config
@@ -164,10 +169,23 @@ class SettingsDialog(QDialog):
         self.key_edit.setEchoMode(QLineEdit.Password)
         self.key_edit.setPlaceholderText("sk-...（本机服务可留空）")
         form.addRow("API Key", self.key_edit)
-        self.model_edit = QLineEdit(self.config.get("ai_model", ""))
-        form.addRow("模型名", self.model_edit)
+        model_row = QWidget()
+        model_lay = QHBoxLayout(model_row)
+        model_lay.setContentsMargins(0, 0, 0, 0)
+        self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.setMinimumContentsLength(24)
+        self.model_combo.setCurrentText(self.config.get("ai_model", ""))
+        self.model_refresh = QPushButton("刷新")
+        self.model_refresh.setFixedWidth(56)
+        self.model_refresh.clicked.connect(self._fetch_models)
+        model_lay.addWidget(self.model_combo, 1)
+        model_lay.addWidget(self.model_refresh)
+        form.addRow("模型名", model_row)
         self.preset_combo.currentIndexChanged.connect(self._apply_preset)
         self._apply_preset(keep=True)
+        self.models_loaded.connect(self._on_models_loaded)
+        self._fetch_models()
 
         self.persona_edit = QPlainTextEdit()
         self.persona_edit.setPlainText(self.config.get("ai_persona") or DEFAULT_PERSONA)
@@ -208,16 +226,62 @@ class SettingsDialog(QDialog):
         p = PRESETS.get(self.preset_combo.currentData())
         if not p:
             return
-        if keep and self.config.get("ai_preset") != self.preset_combo.currentData():
+        changed = self.config.get("ai_preset") != self.preset_combo.currentData()
+        if keep and changed:
             keep = False  # 用户切换了预设：覆盖 base/model
         if keep:
             self.base_edit.setText(self.config.get("ai_base_url", p["base_url"]))
-            self.model_edit.setText(self.config.get("ai_model", p["model"]))
+            self.model_combo.setCurrentText(self.config.get("ai_model", p["model"]))
         elif self.preset_combo.currentData() != "custom":
             self.base_edit.setText(p["base_url"])
-            self.model_edit.setText(p["model"])
+            self.model_combo.setCurrentText(p["model"])
             if p.get("key"):
                 self.key_edit.setText(p["key"])
+        if changed or not keep:
+            self._fetch_models()
+
+    def _fetch_models(self):
+        base = self.base_edit.text().strip().rstrip("/")
+        if not base:
+            return
+        key = self.key_edit.text().strip()
+        self.model_refresh.setEnabled(False)
+        self.model_refresh.setText("获取中…")
+        threading.Thread(target=self._fetch_models_worker, args=(base, key), daemon=True).start()
+
+    def _fetch_models_worker(self, base, key):
+        try:
+            r = requests.get(base + "/models",
+                             headers={"Authorization": "Bearer " + key} if key else {},
+                             timeout=8)
+            if r.status_code == 200:
+                ids = [str(m["id"]) for m in (r.json().get("data") or []) if m.get("id")]
+                if ids:
+                    self._emit_models(ids, True)
+                    return
+        except Exception:
+            pass
+        self._emit_models([], False)
+
+    def _emit_models(self, ids, ok):
+        try:
+            self.models_loaded.emit(ids, ok)
+        except RuntimeError:
+            pass  # 对话框已关闭，线程收尾
+
+    def _on_models_loaded(self, ids, ok):
+        self.model_refresh.setEnabled(True)
+        self.model_refresh.setText("刷新")
+        current = self.model_combo.currentText()
+        if ok:
+            self.model_combo.clear()
+            self.model_combo.addItems(ids)
+            if current:
+                self.model_combo.setCurrentText(current)
+            elif ids:
+                self.model_combo.setCurrentIndex(0)
+        else:
+            self.model_combo.setToolTip("获取模型列表失败，可手动输入模型名")
 
     def _reset_affection(self):
         self.config.set("affection_value", float(self.aff_initial.value()))
@@ -339,7 +403,7 @@ class SettingsDialog(QDialog):
         self.config.set("ai_preset", self.preset_combo.currentData())
         self.config.set("ai_base_url", self.base_edit.text().strip())
         self.config.set("ai_api_key", self.key_edit.text().strip())
-        self.config.set("ai_model", self.model_edit.text().strip())
+        self.config.set("ai_model", self.model_combo.currentText().strip())
         self.config.set("ai_persona", self.persona_edit.toPlainText().strip() or DEFAULT_PERSONA)
         self.config.set("ai_context_n", self.ctx_spin.value())
         self.config.set("ai_fallback_enabled", self.fallback_check.isChecked())
