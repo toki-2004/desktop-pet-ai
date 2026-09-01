@@ -512,7 +512,7 @@ check("settings dialog visible after _open_settings",
       pet2._settings_dlg is not None and pet2._settings_dlg.isVisible())
 
 # 12. float text: padding fits text, position clamped on screen
-_ft_text = "+¥1.50"
+_ft_text = "通知功能正常"
 pet.show_float_text(_ft_text, "#22C55E")
 app.processEvents()
 _floats = list(pet._floats)
@@ -520,8 +520,10 @@ check("float text: label created", len(_floats) == 1)
 if _floats:
     _fl = _floats[0]
     check("float text: width fits text",
-          _fl.width() >= _fl.fontMetrics().horizontalAdvance(_ft_text),
+          _fl.width() >= _fl.fontMetrics().horizontalAdvance(_ft_text) + 14,
           (_fl.width(), _fl.fontMetrics().horizontalAdvance(_ft_text)))
+    check("float text: centered alignment",
+          int(_fl.alignment()) == int(Qt.AlignCenter), int(_fl.alignment()))
     _avail = QApplication.primaryScreen().availableGeometry()
     check("float text: on screen",
           _fl.x() >= _avail.left() and _fl.y() >= _avail.top()

@@ -9,7 +9,7 @@ import ctypes
 import time
 
 from PyQt5.QtCore import Qt, QPoint, QSize, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
-from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageReader
+from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageReader, QFontMetrics
 from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication, QLineEdit
 
 from scheduler import is_peak
@@ -830,7 +830,11 @@ class PetWindow(QWidget):
         font.setBold(True)
         lab.setFont(font)
         lab.setStyleSheet("color:%s; background:transparent;" % color)
-        lab.resize(lab.sizeHint() + QSize(16, 8))
+        # 不用 sizeHint：真实字体下可能偏小导致截断；用字体度量显式计算，
+        # 并强制居中（QLabel 默认左对齐，窗口加宽后文字会偏左）。
+        lab.setAlignment(Qt.AlignCenter)
+        fm = QFontMetrics(lab.font())
+        lab.resize(fm.horizontalAdvance(text) + 16, fm.height() + 8)
         geo = self.geometry()
         screen = QApplication.screenAt(geo.center())
         avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
