@@ -268,6 +268,7 @@ class DesktopPet:
         parts = [
             str(self.config.get("ai_persona", "")).strip(),
             "当前情境：%s；%s；工作状态：%s。" % (period, tier_map.get(tier, tier), work),
+            "当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"),
         ]
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)

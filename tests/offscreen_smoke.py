@@ -8,6 +8,7 @@ SelfTalkMonitor tag emission, ChatHistory, ChatInput, AI presets, weather.
 import os
 import sys
 import json
+import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -493,6 +494,8 @@ check("app-level: pet window wired", pet2.window is not None
 check("app-level: chat input visible", pet2.window.chat_input.isVisible())
 check("app-level: balance selftest wired", pet2.window.balance_label.text() == "selftest")
 check("app-level: prompt includes work state", "工作状态" in pet2._system_prompt())
+check("prompt includes current time",
+      re.search(r"当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", pet2._system_prompt()) is not None)
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()
