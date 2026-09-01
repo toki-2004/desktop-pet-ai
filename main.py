@@ -309,7 +309,15 @@ class DesktopPet:
     def _restore_position(self):
         pos = self.config.get("pet_pos")
         if isinstance(pos, list) and len(pos) == 2:
-            self.window.move(pos[0], pos[1])
+            # 恢复前钳制到当前可见屏幕：副屏/虚拟屏断开后旧坐标会在屏外，
+            # 桌宠"消失只剩通知"（2026-09-01 实测坑）
+            geo = QApplication.primaryScreen().availableGeometry()
+            x, y = int(pos[0]), int(pos[1])
+            if not geo.contains(x, y):
+                petlog.log("pet_pos %s off-screen, clamp to primary" % pos)
+                x = max(geo.left(), min(x, geo.right() - self.window.width()))
+                y = max(geo.top(), min(y, geo.top() + 100))
+            self.window.move(x, y)
 
     def _on_moved(self, point):
         # 位置落盘改由 PetWindow.mouseReleaseEvent 在拖动结束时执行一次，
