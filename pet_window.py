@@ -628,11 +628,13 @@ class PetWindow(QWidget):
         work_on = work in labels
         rect = self._pre_interact_rect if self._status_frozen and self._pre_interact_rect else self
         y = rect.y() + rect.height()
-        # 相同高度且随字号自适应：以当前字体的内容高度（sizeHint）为准，
-        # 取三者最大为统一高度；避免 setFixedHeight 锁死后字号变化高度不跟
-        h = max(max(18, l.sizeHint().height() + 6) for l in labels)
+        # 相同高度且随字号自适应：用 fontMetrics 直接算内容高度（不受旧尺寸
+        # 约束影响）。不能用 sizeHint().height()——一旦 setFixedHeight 锁过高度，
+        # sizeHint 会返回"当前高度-内边距"导致高度只增不减（滚轮放大缩小后
+        # 标签无限变高）；也不能 setFixedHeight（Fixed 策略让 resize 无法缩小）。
+        h = max(max(18, l.fontMetrics().height() + 6) for l in labels)
         for l in labels:
-            l.setFixedHeight(h)
+            l.setMinimumHeight(h)
             l.resize(max(24, l.sizeHint().width() + 16), h)
         gap = 6
         total = sum(l.width() for l in labels) + gap * max(0, len(labels) - 1)

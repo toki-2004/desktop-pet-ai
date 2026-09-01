@@ -320,6 +320,23 @@ check("label height adapts to font size",
 pet._font_size_pending = None
 pet._refresh_fonts()
 
+# 滚轮反复放大缩小：宽高必须对称往返，不能只增不减（setFixedHeight 导致的
+# sizeHint 棘轮 bug 回归测试）
+w0, h0 = pet.affection_label.width(), pet.affection_label.height()
+for _ in range(3):
+    pet.affection_label.wheelEvent(QWheelEvent(
+        QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, 120),
+        Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+pet._save_font_size()
+for _ in range(3):
+    pet.affection_label.wheelEvent(QWheelEvent(
+        QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, -120),
+        Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+pet._save_font_size()
+check("wheel zoom in/out returns to original size",
+      (pet.affection_label.width(), pet.affection_label.height()) == (w0, h0),
+      (w0, h0, pet.affection_label.width(), pet.affection_label.height()))
+
 _chat_pm = pet.chat_input.grab()
 _chat_img = _chat_pm.toImage()
 check("chat input rounded corners transparent",
