@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """设置对话框：通知、外观、好感、AI 连接（OpenAI 兼容 + 厂商预设）。"""
 import threading
+import webbrowser
 
 import requests
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -9,15 +10,74 @@ from PyQt5.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QPushButton, QLabel, QColorDialog, QFileDialog,
     QDialogButtonBox, QMessageBox, QCheckBox, QPlainTextEdit, QSpinBox,
-    QComboBox,
+    QComboBox, QListWidget, QListWidgetItem,
 )
 
 from ai_client import PRESETS
+from platforms import PROVIDERS
 
 DEFAULT_PERSONA = (
     "你是一只住在用户桌面上的 AI 桌宠，说话可爱、简短、口语化，每次回复尽量不超过两句话。"
     "你会根据当前情境（时间、天气、好感度等）主动说话，也会回应主人的摸头和聊天。"
 )
+
+
+class AccountDialog(QDialog):
+    """绑定余额查询账号：平台 + API Key。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("绑定余额账号")
+        self.setMinimumWidth(360)
+        form = QFormLayout(self)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("例如：主账号")
+        self.platform_combo = QComboBox()
+        for pid, provider in PROVIDERS.items():
+            self.platform_combo.addItem(provider.name, pid)
+        self.key_edit = QLineEdit()
+        self.key_edit.setEchoMode(QLineEdit.Password)
+        self.key_edit.setPlaceholderText("sk-...")
+        form.addRow("账号名称", self.name_edit)
+        form.addRow("平台", self.platform_combo)
+        form.addRow("API Key", self.key_edit)
+
+        open_btn = QPushButton("在浏览器打开平台官网")
+        self._open_btn = open_btn
+        self.platform_combo.currentIndexChanged.connect(self._open_btn_url)
+        self._open_btn_url()
+        form.addRow("", open_btn)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self._check)
+        btns.rejected.connect(self.reject)
+        form.addRow(btns)
+
+    def _open_btn_url(self):
+        provider = PROVIDERS.get(self.platform_combo.currentData())
+        if provider:
+            try:
+                self._open_btn.clicked.disconnect()
+            except TypeError:
+                pass
+            self._open_btn.clicked.connect(
+                lambda: webbrowser.open(provider.docs_url))
+
+    def _check(self):
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "提示", "请填写账号名称")
+            return
+        if not self.key_edit.text().strip():
+            QMessageBox.warning(self, "提示", "请填写 API Key")
+            return
+        self.accept()
+
+    def account(self):
+        return (
+            self.name_edit.text().strip(),
+            self.platform_combo.currentData(),
+            self.key_edit.text().strip(),
+        )
 
 
 class SettingsDialog(QDialog):
@@ -34,6 +94,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._build_notify_tab(), "通知")
         self.tabs.addTab(self._build_appearance_tab(), "外观")
         self.tabs.addTab(self._build_affection_tab(), "好感")
+        self.tabs.addTab(self._build_balance_tab(), "余额")
         self.tabs.addTab(self._build_ai_tab(), "AI")
         self.tabs.setCurrentIndex(initial_tab)
 
@@ -295,6 +356,81 @@ class SettingsDialog(QDialog):
         self.config.set("affection_value", float(self.aff_initial.value()))
         self.config.set("affection_last_update", 0.0)
 
+    # ---------- 余额页 ----------
+    def _build_balance_tab(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+
+        self.balance_check = QCheckBox("显示余额文本（桌宠左上角，可拖动）")
+        self.balance_check.setChecked(bool(self.config.get("show_balance", True)))
+        lay.addWidget(self.balance_check)
+
+        form = QFormLayout()
+        self.poll_spin = QSpinBox()
+        self.poll_spin.setRange(1, 600)
+        self.poll_spin.setValue(int(self.config.get("poll_interval_sec", 3)))
+        self.poll_spin.setSuffix(" 秒")
+        form.addRow("余额轮询间隔", self.poll_spin)
+
+        self.work_label_check = QCheckBox("显示工作状态标签（余额升降判定）")
+        self.work_label_check.setChecked(bool(self.config.get("work_label_enabled", True)))
+        form.addRow("工作状态", self.work_label_check)
+        self.work_hold_spin = QSpinBox()
+        self.work_hold_spin.setRange(0, 86400)
+        self.work_hold_spin.setValue(int(self.config.get("work_state_hold_sec", 180)))
+        self.work_hold_spin.setSuffix(" 秒")
+        self.work_hold_spin.setToolTip("余额下降后保持'工作中'的时长；余额同步往往没那么快，避免很快又显示'空闲中'")
+        form.addRow("余额下降后保持'工作中'", self.work_hold_spin)
+        lay.addLayout(form)
+
+        lay.addWidget(QLabel("余额账号（多平台，未绑定则不查询）"))
+        self.accounts_list = QListWidget()
+        accounts = self.config.get("accounts", {}) or {}
+        for name in accounts:
+            acc = accounts[name]
+            pid = acc.get("platform", "deepseek") if isinstance(acc, dict) else "deepseek"
+            provider = PROVIDERS.get(pid)
+            item = QListWidgetItem("%s（%s）" % (name, provider.name if provider else pid))
+            item.setData(Qt.UserRole, name)
+            self.accounts_list.addItem(item)
+        lay.addWidget(self.accounts_list)
+
+        row = QHBoxLayout()
+        add_btn = QPushButton("添加账号")
+        add_btn.clicked.connect(self._add_account)
+        del_btn = QPushButton("删除选中")
+        del_btn.clicked.connect(self._del_account)
+        row.addWidget(add_btn)
+        row.addWidget(del_btn)
+        lay.addLayout(row)
+        return w
+
+    def _add_account(self):
+        dlg = AccountDialog(self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        name, platform, key = dlg.account()
+        accounts = self.config.get("accounts", {}) or {}
+        if name in accounts:
+            QMessageBox.warning(self, "提示", "该账号名称已存在")
+            return
+        accounts[name] = {"platform": platform, "api_key": key}
+        self.config.set("accounts", accounts)
+        provider = PROVIDERS.get(platform)
+        item = QListWidgetItem("%s（%s）" % (name, provider.name if provider else platform))
+        item.setData(Qt.UserRole, name)
+        self.accounts_list.addItem(item)
+
+    def _del_account(self):
+        item = self.accounts_list.currentItem()
+        if not item:
+            return
+        name = item.data(Qt.UserRole) or item.text()
+        accounts = self.config.get("accounts", {}) or {}
+        accounts.pop(name, None)
+        self.config.set("accounts", accounts)
+        self.accounts_list.takeItem(self.accounts_list.row(item))
+
     # ---------- 颜色 / 预览工具 ----------
     def _color_row(self, form, label, hex_color):
         row = QWidget()
@@ -408,6 +544,10 @@ class SettingsDialog(QDialog):
         self.config.set("affection_low_threshold_pct", self.aff_low.value())
         self.config.set("affection_quote_cooldown_sec", self.aff_cooldown.value())
         self.config.set("affection_label_enabled", self.aff_label_check.isChecked())
+        self.config.set("show_balance", self.balance_check.isChecked())
+        self.config.set("poll_interval_sec", self.poll_spin.value())
+        self.config.set("work_label_enabled", self.work_label_check.isChecked())
+        self.config.set("work_state_hold_sec", self.work_hold_spin.value())
         self.config.set("ai_preset", self.preset_combo.currentData())
         self.config.set("ai_base_url", self.base_edit.text().strip())
         self.config.set("ai_api_key", self.key_edit.text().strip())

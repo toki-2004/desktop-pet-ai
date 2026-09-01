@@ -195,6 +195,9 @@ check("settings model combo editable",
       hasattr(dlg, "model_combo") and dlg.model_combo.isEditable())
 check("settings has web2api message limit spin",
       hasattr(dlg, "web2api_msgs") and dlg.web2api_msgs.value() == int(cfg_aff.get("ai_web2api_max_messages", 20)))
+check("settings has balance tab controls",
+      hasattr(dlg, "poll_spin") and hasattr(dlg, "work_label_check")
+      and hasattr(dlg, "balance_check") and hasattr(dlg, "accounts_list"))
 
 dlg_m = SettingsDialog(cfg_aff)
 dlg_m._on_models_loaded(["deepseek", "deepseek-thinking"], True)
@@ -228,6 +231,16 @@ check("attention tag fired after long no-interaction", "attention" in tags)
 t10.on_affection_tier("high")
 check("affection tier emits tag", "affection_high" in tags)
 t10.set_weather("sunny")
+tags11 = []
+t11 = main_mod.SelfTalkMonitor(cfg2)
+t11.request_talk.connect(tags11.append)
+t11.on_balance_change("up")
+t11.on_balance_change("up")  # 冷却内不再触发
+t11.on_balance_change("flat", working_hold=True)  # 余额下降保持期内不触发"空闲中"
+check("work tags throttled and hold-aware", tags11 == ["work_up"], tags11)
+t11._last_work_quote["flat"] = 0.0
+t11.on_balance_change("flat")
+check("flat work tag emitted", tags11 == ["work_up", "work_flat"], tags11)
 check("weather tag fires", "weather_sunny" in tags)
 t10.set_weather("sunny")
 check("same weather once per day", tags.count("weather_sunny") == 1)
@@ -329,6 +342,21 @@ check("save_state persists position and scale",
       and abs(float(cfg.get("pet_scale", 1.0)) - pet._scale) < 0.001,
       (cfg.get("pet_pos"), cfg.get("pet_scale"), pet._scale))
 
+# 9.7 余额文本与工作状态标签
+check("balance/work labels exist",
+      hasattr(pet, "balance_label") and hasattr(pet, "work_label"))
+pet.work_label.show()
+pet._place_work()
+check("work label sits right of status label",
+      pet.work_label.x() > pet.status_label.x()
+      and pet.work_label.y() == pet.status_label.y(),
+      (pet.work_label.x(), pet.status_label.x(), pet.work_label.y()))
+pet.work_label.set_state("down")
+check("work label shows working state",
+      pet.work_label.current_state() == "down" and "工作" in pet.work_label.text())
+pet.balance_label.set_balance("¥12.34")
+check("balance label text updates", pet.balance_label.text() == "¥12.34")
+
 # 10. AI presets structure
 check("presets have base_url and model",
       all("base_url" in p and "model" in p for p in PRESETS.values()))
@@ -380,12 +408,20 @@ class _FakeWeather(weather_mod.WeatherMonitor):
         self.weatherChanged.emit("sunny")
 
 
+class _FakeBalance(main_mod.BalanceMonitor):
+    def start(self):
+        pass  # 不发起真实网络轮询；信号链路由 _wire 的 selftest emit 覆盖
+
+
 main_mod.WeatherMonitor = _FakeWeather
+main_mod.BalanceMonitor = _FakeBalance
 pet2 = main_mod.DesktopPet()
 app.processEvents()
 check("app-level: pet window wired", pet2.window is not None
       and pet2.ai is not None and pet2.history is not None)
 check("app-level: chat input visible", pet2.window.chat_input.isVisible())
+check("app-level: balance selftest wired", pet2.window.balance_label.text() == "selftest")
+check("app-level: prompt includes work state", "工作状态" in pet2._system_prompt())
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()

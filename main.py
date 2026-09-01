@@ -26,6 +26,7 @@ from weather import WeatherMonitor
 from affection import AffectionSystem
 from ai_client import AIClient, PRESETS
 from chat_history import ChatHistory, HistoryDialog
+from balance import BalanceMonitor
 import autostart
 import web2api
 
@@ -77,6 +78,7 @@ class SelfTalkMonitor(QObject):
     IDLE_MINUTES = 45              # 闲置多久触发健康提醒
     ATTENTION_MINUTES = 90         # 多久没有互动触发求关注
     WEATHER_KINDS = ("sunny", "cloudy", "rainy", "snowy", "foggy", "windy", "stormy")
+    WORK_THROTTLE_S = 1800         # 工作状态 AI 触发冷却（每方向）
 
     def __init__(self, config):
         super().__init__()
@@ -88,6 +90,7 @@ class SelfTalkMonitor(QObject):
         self._last_pat = 0.0      # monotonic：最近一次摸头/单击互动
         self._last_attention = 0.0
         self._last_health = 0.0
+        self._last_work_quote = {"up": 0.0, "down": 0.0, "flat": 0.0}
         self._fired_rules = {}    # time 规则 -> 已触发日期
         self._fired_weather = {}   # 天气池 -> 已触发日期
         # 可注入（测试/外部调整）
@@ -149,6 +152,24 @@ class SelfTalkMonitor(QObject):
         if tag:
             self._emit_tag(tag)
 
+    def on_balance_change(self, direction=None, working_hold=False):
+        """余额变动事件后调用（direction: "up"/"down"/"flat"）。
+
+        按方向触发工作状态 AI 文本（工作中/空闲中/充值了，各自冷却）；
+        working_hold=True 表示仍处于"余额下降后的保持期"，此时 flat 方向
+        不再触发"空闲中"（与工作标签显示保持一致）。
+        """
+        if direction not in ("up", "down", "flat"):
+            return
+        if direction == "flat" and working_hold:
+            return
+        mono = self._mono_fn()
+        if mono - self._last_work_quote[direction] < self.WORK_THROTTLE_S:
+            return
+        tag = {"up": "work_up", "down": "work_down", "flat": "work_flat"}[direction]
+        if self._emit_tag(tag):
+            self._last_work_quote[direction] = mono
+
     def set_weather(self, kind):
         """天气变化时调用：当天同一天气至多触发一次（换天气/跨天可再触发）。"""
         tag = ("weather_" + kind) if kind in self.WEATHER_KINDS else "weather"
@@ -209,6 +230,7 @@ class DesktopPet:
             self.config.get("chat_history_max", 200))
         self.affection = AffectionSystem(self.config)
         self.weather = WeatherMonitor(self.config)
+        self.balance = BalanceMonitor(self.config)
         self._balloon = None
         self._special_active = False
         self._last_error_ts = 0.0
@@ -222,6 +244,7 @@ class DesktopPet:
         self.window.show()
         if not os.environ.get("PET_SMOKE"):
             self.weather.start()  # 冒烟模式不访问网络（天气拉取放后台线程，会拖慢退出）
+            self.balance.start()  # 余额轮询（多平台账号，未绑定则显示"未绑定账号"）
             if os.path.isdir(web2api.VENDOR_DIR):
                 self.web2api.ensure_async()  # 探测/拉起内置 AI；未绑定会弹登录
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
@@ -237,11 +260,14 @@ class DesktopPet:
     def _system_prompt(self, tag=""):
         tier_map = {"high": "好感度很高", "mid": "好感度一般", "low": "好感度较低"}
         tier = self.affection.tier()
+        work_map = {"up": "充值了（余额增加）", "down": "工作中（余额在下降）",
+                    "flat": "空闲中（余额平稳）", "unknown": "余额状态未知"}
+        work = work_map.get(self.window.work_label.current_state(), "余额状态未知")
         from scheduler import is_peak
         period = "高峰时段" if is_peak() else "空闲时段"
         parts = [
             str(self.config.get("ai_persona", "")).strip(),
-            "当前情境：%s；%s。" % (period, tier_map.get(tier, tier)),
+            "当前情境：%s；%s；工作状态：%s。" % (period, tier_map.get(tier, tier), work),
         ]
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)
@@ -301,12 +327,27 @@ class DesktopPet:
         w.petHeadRequested.connect(lambda: self.affection.note_pet())
         w.chatInputRequested.connect(self._on_user_chat)
         w.historyRequested.connect(self._open_history)
+        w.balanceVisibleRequested.connect(self._on_balance_visible)
         w.moved.connect(self._on_moved)
 
         a = self.affection
         a.tierChanged.connect(self.talk.on_affection_tier)
         a.valueChanged.connect(w.affection_label.set_affection)
         w.affection_label.set_affection(a.value())
+
+        m = self.balance
+        m.balanceUpdated.connect(w.set_balance_text)
+        m.balanceUp.connect(lambda t: w.show_float_text(t, "#22C55E"))
+        m.balanceDown.connect(lambda t: w.show_float_text(t, "#EF4444"))
+        m.balanceUp.connect(lambda t: w.work_label.set_state("up"))
+        m.balanceDown.connect(lambda t: w.work_label.set_state("down"))
+        m.balanceFlat.connect(lambda t: w.work_label.set_state("flat"))
+        m.balanceUp.connect(lambda t: self.talk.on_balance_change("up"))
+        m.balanceDown.connect(lambda t: self.talk.on_balance_change("down"))
+        m.balanceFlat.connect(lambda t: self.talk.on_balance_change(
+            "flat", working_hold=w.work_label.in_working_hold()))
+        m.fetchError.connect(lambda msg: petlog.log("balance error: %s" % msg))
+        m.balanceUpdated.emit(0.0, "selftest")  # 冒烟：验证信号链路
 
         s = self.schedule
         s.peakStarted.connect(lambda: self._show_balloon(
@@ -326,6 +367,9 @@ class DesktopPet:
     def _on_weather_error(self, msg):
         """天气拉取失败：只留日志，不弹通知打扰用户。"""
         petlog.log("weather error: %s" % msg)
+
+    def _on_balance_visible(self, visible):
+        self.window.set_balance_visible(visible)
 
     def _restore_position(self):
         pos = self.config.get("pet_pos")
@@ -418,6 +462,8 @@ class DesktopPet:
         self._settings_dlg = None
         self.window.apply_config()
         self.talk._schedule()
+        self.balance.set_interval(int(self.config.get("poll_interval_sec", 3)))
+        self.balance.poll()
         web2api.apply_max_messages(self.config.get("ai_web2api_max_messages", 20))
         self.affection.apply_config()
         if self._balloon is not None:
@@ -514,6 +560,8 @@ class DesktopPet:
         else:
             w.chat_input.hide()
             w.status_label.hide()
+            w.balance_label.hide()
+            w.work_label.hide()
             w.affection_label.hide()
         if getattr(self, "_tray_toggle_action", None):
             self._tray_toggle_action.setText("显示桌宠" if not show else "隐藏桌宠")

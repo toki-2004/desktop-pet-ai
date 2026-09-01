@@ -55,6 +55,15 @@ in real time by an OpenAI-compatible API — no quote libraries at all.
     exit and restored on the next launch; the tray menu's "Recall to center"
     moves the pet to the center of the current screen without resizing it, so
     it can always be brought back even if it was dragged off-screen.
+13. **Multi-platform balance query**: bind DeepSeek / Kimi / SiliconFlow
+    accounts in the settings "Balance" tab and the balance is polled on an
+    interval; the balance label stays at the pet's top-left (draggable, wheel
+    font size, toggled from the right-click menu), with floating animations on
+    increases/decreases.
+14. **Work status label + AI awareness**: work state is derived from balance
+    changes (decrease = working, flat = idle, increase = topped up) and shown
+    right of the period label; the state is also injected into the AI prompt,
+    and state changes trigger AI speech (throttled per direction).
 
 AI messages never use force notifications: they appear as bubbles/labels, and
 chat content is persisted for later reading.
