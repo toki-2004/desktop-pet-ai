@@ -394,6 +394,7 @@ class PetWindow(QWidget):
         self.pet_label.setFixedSize(size)
         self.setFixedSize(size)
         self._place_status()
+        self._place_affection()
 
     @staticmethod
     def _fit(src_size):

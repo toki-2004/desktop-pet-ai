@@ -273,6 +273,23 @@ check("affection label follows pet move",
       and pet.affection_label.y() == old_aff_pos[1] + 20,
       (old_aff_pos, (pet.affection_label.x(), pet.affection_label.y())))
 
+# 9.55 wheel-zoom on pet keeps affection label glued to pet bottom row
+pet.affection_label.wheelEvent(QWheelEvent(QPointF(5, 5), QPointF(5, 5),
+                                           QPoint(0, 0), QPoint(0, -120),
+                                           Qt.NoButton, Qt.NoModifier,
+                                           Qt.NoScrollPhase, False))
+pet._save_font_size()
+zoom_status_y = pet.status_label.y()
+zoom_aff_y = pet.affection_label.y()
+pet.wheelEvent(QWheelEvent(QPointF(5, 5), QPointF(5, 5),
+                           QPoint(0, 0), QPoint(0, -120),
+                           Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+app.processEvents()
+check("shrink pet: status label follows bottom", pet.status_label.y() <= zoom_status_y)
+check("shrink pet: affection label follows too",
+      pet.affection_label.y() == pet.status_label.y(),
+      (zoom_aff_y, pet.affection_label.y(), pet.status_label.y()))
+
 # 10. AI presets structure
 check("presets have base_url and model",
       all("base_url" in p and "model" in p for p in PRESETS.values()))
