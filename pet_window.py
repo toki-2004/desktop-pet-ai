@@ -76,8 +76,8 @@ class ChatInput(QLineEdit):
     def _current_fs(self):
         return int(self.config.get("balance_font_size", 14) or 14)
 
-    def _apply_style(self):
-        fs = self._current_fs()
+    def _apply_style(self, fs=None):
+        fs = fs if fs is not None else self._current_fs()
         font = self.font()
         font.setPointSize(fs)
         font.setBold(True)
@@ -155,8 +155,9 @@ class StatusLabel(QLabel):
         self.setText(peak_t if peak else idle_t)
         self._apply_style()
 
-    def _apply_style(self):
-        fs = int(self.config.get("balance_font_size", 14) or 14)
+    def _apply_style(self, fs=None):
+        if fs is None:
+            fs = int(self.config.get("balance_font_size", 14) or 14)
         font = self.font()
         font.setPointSize(max(9, fs - 2))
         font.setBold(True)
@@ -213,8 +214,9 @@ class AffectionLabel(QLabel):
             self._value = 0.0
         self._apply_style()
 
-    def _apply_style(self):
-        fs = int(self.config.get("balance_font_size", 14) or 14)
+    def _apply_style(self, fs=None):
+        if fs is None:
+            fs = int(self.config.get("balance_font_size", 14) or 14)
         font = self.font()
         font.setPointSize(max(9, fs - 2))
         font.setBold(True)
@@ -225,6 +227,12 @@ class AffectionLabel(QLabel):
         self.update()
         if self.pet_window is not None:
             self.pet_window._place_affection()
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta and self.pet_window is not None:
+            self.pet_window._adjust_font(delta)
+        event.accept()
 
     # 好感档位配色：高=粉色系，中=蓝色系，低=灰蓝色系
     PALETTE = {
@@ -291,6 +299,11 @@ class PetWindow(QWidget):
         self._scale_save_timer.setInterval(800)
         self._scale_save_timer.timeout.connect(
             lambda: self.config.set("pet_scale", round(self._scale, 3)))
+        self._font_save_timer = QTimer(self)
+        self._font_save_timer.setSingleShot(True)
+        self._font_save_timer.setInterval(800)
+        self._font_save_timer.timeout.connect(self._save_font_size)
+        self._font_size_pending = None
 
         self.pet_label = QLabel(self)
         self.chat_input = ChatInput(config, self)
@@ -597,7 +610,29 @@ class PetWindow(QWidget):
         if self.chat_input.isVisible():
             self._place_input()
         self._place_status()
+        self._place_affection()
         super().moveEvent(event)
+
+    def _adjust_font(self, delta):
+        """滚轮调全局字号：好感/时段/输入框/通知文本同步（通知取值于弹窗时刻）。"""
+        base = self._font_size_pending
+        if base is None:
+            base = int(self.config.get("balance_font_size", 14) or 14)
+        self._font_size_pending = max(8, min(30, base + (1 if delta > 0 else -1)))
+        self._refresh_fonts()
+        self._font_save_timer.start()
+
+    def _save_font_size(self):
+        if self._font_size_pending is not None:
+            self.config.set("balance_font_size", self._font_size_pending)
+            self._font_size_pending = None
+
+    def _refresh_fonts(self):
+        fs = self._font_size_pending
+        if fs is None:
+            fs = int(self.config.get("balance_font_size", 14) or 14)
+        for lab in (self.status_label, self.affection_label, self.chat_input):
+            lab._apply_style(fs)
 
     # ---------- 右键菜单 ----------
     def contextMenuEvent(self, event):

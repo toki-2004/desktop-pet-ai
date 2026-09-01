@@ -11,7 +11,7 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt5.QtCore import QEventLoop, QTimer, QEvent, QPointF, Qt  # noqa: E402
+from PyQt5.QtCore import QEventLoop, QTimer, QEvent, QPointF, QPoint, Qt  # noqa: E402
 from PyQt5.QtGui import QImage, QMouseEvent  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
@@ -243,6 +243,36 @@ pet.chat_input._send()
 check("chat input sends signal", got_chat == ["你好"], got_chat)
 check("chat input cleared after send", pet.chat_input.text() == "")
 
+# 9.5 wheel on affection label syncs font everywhere; affection follows pet move
+from PyQt5.QtGui import QWheelEvent  # noqa: E402
+
+pet.status_label.show()
+pet.affection_label.show()
+pet.chat_input.show()
+pet.show()
+whe = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, 120),
+                  Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+fs0 = int(cfg.get("balance_font_size", 14))
+app.sendEvent(pet.affection_label, whe)
+app.processEvents()
+fs1 = pet._font_size_pending
+check("wheel bumps pending font size", fs1 == fs0 + 1, (fs0, fs1))
+check("affection label font synced",
+      pet.affection_label.font().pointSize() == max(9, fs1 - 2))
+check("status label font synced",
+      pet.status_label.font().pointSize() == max(9, fs1 - 2))
+check("chat input font synced", pet.chat_input.font().pointSize() == fs1)
+pet._save_font_size()
+check("font size persisted", int(cfg.get("balance_font_size")) == fs1)
+
+old_aff_pos = (pet.affection_label.x(), pet.affection_label.y())
+pet.move(pet.x() + 40, pet.y() + 20)
+app.processEvents()
+check("affection label follows pet move",
+      pet.affection_label.x() == old_aff_pos[0] + 40
+      and pet.affection_label.y() == old_aff_pos[1] + 20,
+      (old_aff_pos, (pet.affection_label.x(), pet.affection_label.y())))
+
 # 10. AI presets structure
 check("presets have base_url and model",
       all("base_url" in p and "model" in p for p in PRESETS.values()))
@@ -261,6 +291,11 @@ app.processEvents()
 check("app-level: pet window wired", pet2.window is not None
       and pet2.ai is not None and pet2.history is not None)
 check("app-level: chat input visible", pet2.window.chat_input.isVisible())
+
+# 11.5 history dialog survives GC (kept reference on self)
+pet2._open_history()
+app.processEvents()
+check("history dialog visible after processEvents", pet2._history_dlg.isVisible())
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")

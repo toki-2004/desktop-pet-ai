@@ -266,6 +266,7 @@ class DesktopPet:
     def _open_history(self):
         dlg = HistoryDialog(self.history)
         dlg.setAttribute(Qt.WA_DeleteOnClose)
+        self._history_dlg = dlg  # 局部变量会被 GC：不持引用窗口闪退
         dlg.show()
 
     def _wire(self):
