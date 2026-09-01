@@ -434,6 +434,11 @@ class DesktopPet:
         # 特殊通知（高峰/空闲，需点按钮确认）显示期间，抑制自言自语/摸头等普通通知
         if self._special_active and not persistent:
             return
+        # 通知弹幕冷却：5 秒内不重复弹出普通通知，防多情境/自言自语同时触发刷屏；
+        # 需确认的特殊通知不受冷却影响。
+        if not persistent and \
+                time.monotonic() - getattr(self, "_last_balloon_at", 0.0) < 5.0:
+            return
         if self._balloon is not None:
             self._balloon.hide()
             self._balloon.deleteLater()
@@ -448,6 +453,7 @@ class DesktopPet:
         self._balloon.confirmed.connect(self._on_balloon_confirmed)
         if persistent:
             self._special_active = True
+        self._last_balloon_at = time.monotonic()
         self._balloon.show_at(self.window.geometry())
 
     def _on_balloon_confirmed(self):

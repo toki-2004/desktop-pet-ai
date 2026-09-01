@@ -534,6 +534,23 @@ if _floats:
           and _fl.x() + _fl.width() <= _avail.right(),
           (_fl.x(), _fl.y(), _fl.width(), _avail))
 
+# 12.5 balloon 5s cooldown
+import time as _t
+pet2._last_balloon_at = 0.0
+pet2._show_balloon("first balloon")
+app.processEvents()
+_b1 = pet2._balloon
+pet2._show_balloon("second balloon")
+app.processEvents()
+check("balloon cooldown suppresses second",
+      pet2._balloon is _b1 and _b1._text == "first balloon")
+pet2._last_balloon_at = _t.monotonic() - 6.0
+pet2._show_balloon("third balloon")
+app.processEvents()
+check("balloon cooldown expires after 5s",
+      pet2._balloon is not None and pet2._balloon is not _b1
+      and pet2._balloon._text == "third balloon")
+
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
 check("wclass cloudy", wclass(3, 5) == "cloudy")
