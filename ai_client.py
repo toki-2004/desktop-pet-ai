@@ -9,9 +9,9 @@ from PyQt5.QtCore import QObject, pyqtSignal
 # 厂商预设：选预设自动填 base_url/model，用户只需填 key（本机服务可免 key）
 PRESETS = {
     "deepseek_web2api": {
-        "name": "DeepSeekWeb2API（本机）",
-        "base_url": "http://127.0.0.1:8000/v1",
-        "model": "deepseek-chat",
+        "name": "DeepSeekWeb2API（内置免费）",
+        "base_url": "http://127.0.0.1:3000/v1",
+        "model": "deepseek",
     },
     "siliconflow": {
         "name": "硅基流动",

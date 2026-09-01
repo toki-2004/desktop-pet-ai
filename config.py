@@ -35,7 +35,7 @@ DEFAULT_CONFIG = {
     "auto_start": False,
     # AI 对话（OpenAI 兼容）
     "ai_preset": "deepseek_web2api",
-    "ai_base_url": "http://127.0.0.1:8000/v1",
+    "ai_base_url": "http://127.0.0.1:3000/v1",
     "ai_api_key": "",
     "ai_model": "deepseek-chat",
     "ai_persona": (

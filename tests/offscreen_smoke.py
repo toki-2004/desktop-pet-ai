@@ -296,6 +296,32 @@ check("presets have base_url and model",
 check("local preset points at 127.0.0.1",
       PRESETS["deepseek_web2api"]["base_url"].startswith("http://127.0.0.1"))
 
+# 10.5 web2api manager: probe monkeypatched, rebind button wired
+import web2api as w2a  # noqa: E402
+
+check("web2api vendor dir exists", os.path.isdir(w2a.VENDOR_DIR))
+orig_get = w2a.requests.get
+
+
+class _Resp:
+    def __init__(self, code):
+        self.status_code = code
+
+
+w2a.requests.get = lambda *a, **k: _Resp(200)
+check("web2api service_alive on 200", w2a.service_alive() is True)
+w2a.requests.get = lambda *a, **k: _Resp(401)
+check("web2api service_alive on 401 (key mismatch)", w2a.service_alive() is True)
+w2a.requests.get = lambda *a, **k: (_ for _ in ()).throw(OSError())
+check("web2api service_alive False on error", w2a.service_alive() is False)
+w2a.requests.get = orig_get
+
+dlg_rb = SettingsDialog(cfg, rebind_callback=lambda: None)
+check("settings has rebind button with callback",
+      hasattr(dlg_rb, "rebind_btn") and dlg_rb.rebind_btn.isEnabled())
+dlg_nb = SettingsDialog(cfg)
+check("no rebind button without callback", not hasattr(dlg_nb, "rebind_btn"))
+
 # 11. app-level wiring with fake weather
 class _FakeWeather(weather_mod.WeatherMonitor):
     def start(self):

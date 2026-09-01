@@ -18,9 +18,10 @@ DEFAULT_PERSONA = (
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, config, initial_tab=0):
+    def __init__(self, config, initial_tab=0, rebind_callback=None):
         super().__init__()
         self.config = config
+        self._rebind_callback = rebind_callback
         self.setWindowTitle("桌宠设置")
         self.resize(500, 480)
 
@@ -190,7 +191,18 @@ class SettingsDialog(QDialog):
         self.talk_interval.setValue(int(self.config.get("self_talk_interval", 300)))
         self.talk_interval.setSuffix(" 秒")
         form.addRow("随机自言自语间隔（0=仅情境触发）", self.talk_interval)
+        if self._rebind_callback is not None:
+            self.rebind_btn = QPushButton("重新绑定（打开 DeepSeek 登录浏览器）")
+            self.rebind_btn.clicked.connect(self._rebind)
+            form.addRow(self.rebind_btn)
         return w
+
+    def _rebind(self):
+        if self._rebind_callback is None:
+            return
+        self.rebind_btn.setEnabled(False)
+        self.rebind_btn.setText("正在打开登录浏览器……登录完成后关闭控制台窗口")
+        self._rebind_callback()
 
     def _apply_preset(self, _=None, keep=False):
         p = PRESETS.get(self.preset_combo.currentData())

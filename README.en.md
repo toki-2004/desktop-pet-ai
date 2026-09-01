@@ -12,15 +12,21 @@ in real time by an OpenAI-compatible API — no quote libraries at all.
    all call an OpenAI-compatible `/v1/chat/completions` endpoint; the system
    prompt combines persona + context (time of day, affection tier, weather,
    trigger tag) + recent conversation history.
-2. **Provider presets**: the settings page offers a preset dropdown —
-   DeepSeekWeb2API (local, `http://127.0.0.1:8000/v1`) / SiliconFlow / Kimi /
-   Custom. Picking a preset fills in base_url and model; you only add an API
-   key (local services can skip it).
-3. **Chat input**: an always-visible input box below the pet (draggable,
+2. **Built-in free AI (DeepSeekWeb2API)**: the project embeds
+   `vendor/DeepSeekWeb2API` (portable Node build, prepared locally, not in
+   Git). On first launch a DeepSeek login browser pops up; after you log in
+   and close the console window the service starts on `127.0.0.1:3000` and
+   later launches stay silent. If the login expires, click "Rebind" in
+   settings. If a web2api service is already listening on port 3000, it is
+   reused as-is.
+3. **Provider presets**: the settings page offers a preset dropdown —
+   DeepSeekWeb2API (built-in free) / SiliconFlow / Kimi / Custom. Picking a
+   preset fills in base_url and model; cloud services only need an API key.
+4. **Chat input**: an always-visible input box below the pet (draggable,
    wheel-adjustable font size, remembered position); press Enter to chat.
-4. **Head-pat reaction**: a single click plays the head-pat animation once and
+5. **Head-pat reaction**: a single click plays the head-pat animation once and
    triggers an AI reaction; press-and-hold = drag, which does not trigger.
-5. **Contextual self-talk**: same trigger logic as the original — time-of-day
+6. **Contextual self-talk**: same trigger logic as the original — time-of-day
    windows (morning/noon/afternoon/evening/midnight, once per day each),
    weekends, a 45-minute sedentary reminder, a 90-minute no-interaction
    attention seeker, affection-tier changes, weather changes (auto IP
@@ -50,7 +56,9 @@ chat content is persisted for later reading.
 - Windows 10/11
 - Python 3.9+
 - Dependencies: PyQt5, requests, Pillow (see `requirements.txt`)
-- Any OpenAI-compatible chat service (a local DeepSeekWeb2API or any cloud key)
+- For the built-in free AI, place a DeepSeekWeb2API portable bundle under
+  `vendor/DeepSeekWeb2API` (node/, node_modules/, src/, config.json; not
+  included in the repo), or use any cloud OpenAI-compatible key
 
 ## Install & run
 

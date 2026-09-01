@@ -27,6 +27,7 @@ from affection import AffectionSystem
 from ai_client import AIClient
 from chat_history import ChatHistory, HistoryDialog
 import autostart
+import web2api
 
 FROZEN = bool(getattr(sys, "frozen", False))
 if FROZEN:
@@ -204,6 +205,8 @@ class DesktopPet:
         self._special_active = False
         self._last_error_ts = 0.0
         self._settings_dlg = None
+        self.web2api = web2api.Manager()
+        self.web2api.status.connect(self._on_web2api_status)
         self._wire()
         self._restore_position()
         if not self.config.get("pet_interact_image") and os.path.exists(DEFAULT_INTERACT):
@@ -211,7 +214,16 @@ class DesktopPet:
         self.window.show()
         if not os.environ.get("PET_SMOKE"):
             self.weather.start()  # 冒烟模式不访问网络（天气拉取放后台线程，会拖慢退出）
+            if os.path.isdir(web2api.VENDOR_DIR):
+                self.web2api.ensure_async()  # 探测/拉起内置 AI；未绑定会弹登录
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
+
+    def _on_web2api_status(self, ok, msg):
+        if msg == "login":
+            self._show_balloon("即将打开 DeepSeek 登录浏览器，登录后关闭那个控制台窗口～")
+            return
+        if msg:
+            self._show_balloon(msg)
 
     # ---------- AI 生成 ----------
     def _system_prompt(self, tag=""):
@@ -380,9 +392,13 @@ class DesktopPet:
             except RuntimeError:
                 # 对话框已被关闭并删除（点取消/右上角 X），重新创建
                 self._settings_dlg = None
-        dlg = SettingsDialog(self.config, initial_tab=tab)
+        dlg = SettingsDialog(self.config, initial_tab=tab,
+                             rebind_callback=self._rebind_web2api)
         dlg.setAttribute(Qt.WA_DeleteOnClose)
         dlg.destroyed.connect(self._on_settings_destroyed)
+
+    def _rebind_web2api(self):
+        self.web2api.rebind_async()
         dlg.accepted.connect(self._on_settings_applied)
         self._settings_dlg = dlg
         dlg.show()
