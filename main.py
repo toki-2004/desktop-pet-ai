@@ -192,6 +192,10 @@ class DesktopPet:
             )
         if autostart.is_enabled():
             self.config.set("auto_start", True)
+        # 旧配置迁移：内置服务端口从 8000 挪到 3000
+        if (self.config.get("ai_preset") == "deepseek_web2api"
+                and str(self.config.get("ai_base_url", "")).endswith(":8000/v1")):
+            self.config.set("ai_base_url", "http://127.0.0.1:3000/v1")
         self.window = PetWindow(self.config, default_image=DEFAULT_IMAGE)
         self.schedule = ScheduleMonitor()
         self.talk = SelfTalkMonitor(self.config)
