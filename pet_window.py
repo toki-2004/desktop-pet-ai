@@ -826,6 +826,9 @@ class PetWindow(QWidget):
         lab.setAttribute(Qt.WA_TranslucentBackground)
         fs = int(self.config.get("balance_font_size", 14) or 14)
         font = lab.font()
+        # 默认字体族对中文走字形回退时，QFontMetrics 度量低于实际渲染宽度，
+        # 导致文字左右被裁；显式指定中文系统字体，让度量与渲染一致。
+        font.setFamily("Microsoft YaHei")
         font.setPointSize(fs)
         font.setBold(True)
         lab.setFont(font)
@@ -834,7 +837,8 @@ class PetWindow(QWidget):
         # 并强制居中（QLabel 默认左对齐，窗口加宽后文字会偏左）。
         lab.setAlignment(Qt.AlignCenter)
         fm = QFontMetrics(lab.font())
-        lab.resize(fm.horizontalAdvance(text) + 16, fm.height() + 8)
+        lab.resize(max(fm.horizontalAdvance(text), lab.sizeHint().width()) + 16,
+                   max(fm.height(), lab.sizeHint().height()) + 8)
         geo = self.geometry()
         screen = QApplication.screenAt(geo.center())
         avail = screen.availableGeometry() if screen else QApplication.primaryScreen().availableGeometry()
