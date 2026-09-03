@@ -5,11 +5,13 @@ vendor/DeepSeekWeb2API 是 D:\\pythonitems\\DeepSeekWeb2API 的本地拷贝
 （便携 Node + 源码，GitHub 不入库）。职责：
 - 探测 127.0.0.1:3000 是否已有 web2api 服务（自己的或用户手启的都直接用）；
 - 未绑定（vendor 无登录态）时以可见控制台跑 --login，首次启动弹浏览器登录；
+- 重新绑定会先清空登录档案，弹出的浏览器无登录态，可直接登录/切换账号；
 - 已绑定则后台静默启动服务，桌宠退出时停止自己拉起的进程。
 """
 import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -40,6 +42,13 @@ def is_bound():
         return os.path.isdir(d) and bool(os.listdir(d))
     except OSError:
         return False
+
+
+def clear_login_state():
+    """清空登录浏览器档案，保证 --login 弹出的是无登录态的全新浏览器。"""
+    d = os.path.join(VENDOR_DIR, "data", "user-data")
+    if os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def service_alive():
@@ -92,8 +101,9 @@ def stop_service():
 
 
 def run_login_and_start():
-    """可见控制台跑 --login（弹浏览器），用户登录完关掉控制台后自动拉起服务。"""
+    """可见控制台跑 --login（弹全新无登录态浏览器），用户登录完关掉控制台后自动拉起服务。"""
     stop_service()
+    clear_login_state()
     login = _run_node(["--login"], new_console=True)
     login.wait()
     return start_service()

@@ -279,7 +279,7 @@ class SettingsDialog(QDialog):
         self.talk_interval.setSuffix(" 秒")
         form.addRow("随机自言自语间隔（0=仅情境触发）", self.talk_interval)
         if self._rebind_callback is not None:
-            self.rebind_btn = QPushButton("重新绑定（打开 DeepSeek 登录浏览器）")
+            self.rebind_btn = QPushButton("重新绑定（清空旧登录态，打开登录页切换账号）")
             self.rebind_btn.clicked.connect(self._rebind)
             form.addRow(self.rebind_btn)
         return w
@@ -288,7 +288,7 @@ class SettingsDialog(QDialog):
         if self._rebind_callback is None:
             return
         self.rebind_btn.setEnabled(False)
-        self.rebind_btn.setText("正在打开登录浏览器……登录完成后关闭控制台窗口")
+        self.rebind_btn.setText("正在清空旧登录态并打开登录浏览器……登录完成后关闭控制台窗口")
         self._rebind_callback()
 
     def _apply_preset(self, _=None, keep=False):

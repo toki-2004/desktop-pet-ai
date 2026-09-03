@@ -20,6 +20,9 @@ zero-cost chatting with no API key at all.
   endpoint; presets auto-fetch the platform's model list.
 - **It remembers**: an affection system plus chat-history context means the AI
   knows what you've talked about.
+- **It knows what you're doing**: current open apps (foreground first) are
+  injected into the AI context, so it can tell coding, gaming or video-watching
+  apart and keep the chat on topic.
 
 ## Features
 
@@ -44,6 +47,8 @@ zero-cost chatting with no API key at all.
 10. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
     one-click recall (never get stuck off-screen).
 11. **The usual desktop-pet stuff**: auto-start, tray control, always-on-top.
+12. **App awareness**: each conversation includes the currently open app
+    windows (foreground first), so the AI can tell what you're doing.
 
 ## Screenshots
 

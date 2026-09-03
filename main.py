@@ -27,6 +27,7 @@ from affection import AffectionSystem
 from ai_client import AIClient, PRESETS
 from chat_history import ChatHistory, HistoryDialog
 from balance import BalanceMonitor
+from running_apps import running_apps
 import autostart
 import web2api
 
@@ -280,7 +281,7 @@ class DesktopPet:
 
     def _on_web2api_status(self, ok, msg):
         if msg == "login":
-            self._show_balloon("即将打开 DeepSeek 登录浏览器，登录后关闭那个控制台窗口～")
+            self._show_balloon("即将清空旧登录态并打开全新的 DeepSeek 登录浏览器，可直接登录或切换账号；登录完成后关闭那个控制台窗口～")
             return
         if msg:
             self._show_balloon(msg)
@@ -299,6 +300,11 @@ class DesktopPet:
             "当前情境：%s；%s；工作状态：%s。" % (period, tier_map.get(tier, tier), work),
             "当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"),
         ]
+        apps = running_apps()
+        if apps:
+            parts.append(
+                "当前打开的应用（排最前的为前台窗口，可据此判断主人在做什么）：%s。"
+                % "；".join(apps))
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)
         if tag:

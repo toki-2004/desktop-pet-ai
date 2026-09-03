@@ -500,6 +500,18 @@ check("prompt tag translated to neutral zh",
       "天气晴朗" in pet2._system_prompt("weather_sunny")
       and "weather_sunny" not in pet2._system_prompt("weather_sunny")
       and "深夜时段" in pet2._system_prompt("time_midnight"))
+if sys.platform == "win32":
+    # 11.45 prompt 注入"当前打开的应用"（前台优先，供 AI 判断主人在做什么）
+    import running_apps as ra_mod
+    _apps = ra_mod.running_apps()
+    check("running apps returns nonempty str list",
+          isinstance(_apps, list)
+          and all(isinstance(a, str) and a for a in _apps),
+          _apps[:3])
+    _prompt_full = pet2._system_prompt()
+    check("prompt includes running apps",
+          (("当前打开的应用" in _prompt_full) if _apps else True),
+          _prompt_full[:150])
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()
@@ -510,6 +522,29 @@ check("history dialog scrolled to latest",
       bool(_hist_views)
       and _hist_views[0].verticalScrollBar().value() == _hist_views[0].verticalScrollBar().maximum(),
       (_hist_views[0].verticalScrollBar().value(), _hist_views[0].verticalScrollBar().maximum()) if _hist_views else None)
+if sys.platform == "win32":
+    # 11.6 标题栏"?"按钮（SC_CONTEXTHELP）触发说明弹窗
+    import ctypes
+    from ctypes import wintypes
+    import chat_history as ch_mod
+
+    class _FakeMB:
+        @staticmethod
+        def information(*a, **k):
+            info_calls.append(a[2])
+
+    class _MSG(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("message", wintypes.UINT),
+                    ("wParam", wintypes.WPARAM), ("lParam", wintypes.LPARAM),
+                    ("time", wintypes.DWORD), ("pt", wintypes.POINT)]
+
+    info_calls = []
+    ch_mod.QMessageBox = _FakeMB
+    buf = _MSG(0, 0x0112, 0xF180, 0, 0, (0, 0))
+    consumed = pet2._history_dlg.nativeEvent(b"windows_generic_MSG", ctypes.addressof(buf))
+    check("history ? button consumed and shows help",
+          consumed[0] is True and len(info_calls) == 1 and "聊天记录" in info_calls[0],
+          (consumed, info_calls))
 pet2._open_settings(0)
 app.processEvents()
 check("settings dialog visible after _open_settings",
