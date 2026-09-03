@@ -27,7 +27,7 @@ from affection import AffectionSystem
 from ai_client import AIClient, PRESETS
 from chat_history import ChatHistory, HistoryDialog
 from balance import BalanceMonitor
-from running_apps import audio_apps, running_apps
+from running_apps import audio_apps, media_track, running_apps
 import autostart
 import web2api
 
@@ -91,8 +91,14 @@ TAG_ZH = {
 
 
 class SelfTalkMonitor(QObject):
-    """情境自言自语：触发逻辑同原版（时段/健康/求关注/好感/天气/随机），
-    命中标签后不再查语录库，而是发出 request_talk 信号，由 AI 生成文本。"""
+    """情境自言自语：时段/健康/求关注/好感/天气/余额/随机等触发器命中后
+    发出 request_talk 信号，由 AI 生成文本。
+
+    self_talk_interval 现在定义为"每两次自言自语之间的最小间隔（冷却）"，
+    对全部触发器生效且优先于触发器：冷却未到点的触发器不发声——
+    情境类条件由 60s 检查继续等待；一次性事件（好感/天气/余额）暂存到
+    心跳到点后优先补放；随机只在没有别的可说时补位。间隔 0 = 不限间隔
+    且关闭随机闲聊（仅情境触发，与原版一致）。"""
 
     request_talk = pyqtSignal(str)
 
@@ -113,10 +119,12 @@ class SelfTalkMonitor(QObject):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self._timer = QTimer(self)          # random：随机闲聊
+        self._timer = QTimer(self)          # 心跳：冷却到点放行情境/暂存事件/随机
         self._timer.timeout.connect(self._fire_random)
         self._context_timer = QTimer(self)  # time/health/attention：情境检查
         self._context_timer.timeout.connect(self._check_context)
+        self._last_talk = 0.0     # 上次真正发声的自言自语时间（全局冷却基准）
+        self._pending = []        # 冷却期内被拦住的一次性触发标签，到点优先补放
         self._last_pat = 0.0      # monotonic：最近一次摸头/单击互动
         self._last_attention = 0.0
         self._last_health = 0.0
@@ -129,16 +137,46 @@ class SelfTalkMonitor(QObject):
         self._idle_fn = _input_idle_seconds
         self._schedule()
 
-    def _emit_tag(self, tag):
-        """统一出口：总开关拦截 + 发出情境标签（文本由 AI 生成）。"""
+    def _emit_tag(self, tag, hold=False):
+        """统一出口：总开关拦截 + 全局冷却（文本由 AI 生成）。
+
+        冷却未到点时：hold=True（好感/天气/余额等一次性事件）暂存进
+        _pending 等待心跳补放；情境类（时段/健康/求关注）不传 hold，
+        调用方不标记"已触发"，下一轮条件仍满足时继续尝试。
+        """
         if not bool(self.config.get("self_talk_enabled", True)):
             return False
+        if not self._gate_open():
+            if hold and tag not in self._pending:
+                self._pending.append(tag)
+            return False
+        self._last_talk = self._mono_fn()
         self.request_talk.emit(tag)
         return True
 
+    def _interval(self):
+        """两次自言自语之间的最小间隔秒数；0 = 不限间隔（并关闭随机心跳）。"""
+        val = self.config.get("self_talk_interval", 300)
+        try:
+            sec = int(val if val is not None else 300)
+        except (TypeError, ValueError):
+            sec = 300
+        return max(0, sec)
+
+    def _gate_open(self):
+        return self._mono_fn() - self._last_talk >= self._interval()
+
     # ---------- 触发方式 ----------
     def _fire_random(self):
-        self._emit_tag("random")
+        """心跳：冷却到点后先让情境/暂存的一次性触发优先发声，都没有才随机。"""
+        self._check_context()
+        if not self._gate_open():   # 情境触发达到了这次发言机会
+            self._schedule()
+            return
+        if self._pending:
+            self._emit_tag(self._pending.pop(0))
+        else:
+            self._emit_tag("random")
         self._schedule()
 
     def _check_context(self):
@@ -180,7 +218,7 @@ class SelfTalkMonitor(QObject):
         """好感档位切换时调用：high -> [affection_high]，mid/low 同理。"""
         tag = {"high": "affection_high", "mid": "affection_mid", "low": "affection_low"}.get(tier)
         if tag:
-            self._emit_tag(tag)
+            self._emit_tag(tag, hold=True)
 
     def on_balance_change(self, direction=None, working_hold=False):
         """余额变动事件后调用（direction: "up"/"down"/"flat"）。
@@ -197,17 +235,19 @@ class SelfTalkMonitor(QObject):
         if mono - self._last_work_quote[direction] < self.WORK_THROTTLE_S:
             return
         tag = {"up": "work_up", "down": "work_down", "flat": "work_flat"}[direction]
-        if self._emit_tag(tag):
+        if self._emit_tag(tag, hold=True):
             self._last_work_quote[direction] = mono
 
     def set_weather(self, kind):
         """天气变化时调用：当天同一天气至多触发一次（换天气/跨天可再触发）。"""
         tag = ("weather_" + kind) if kind in self.WEATHER_KINDS else "weather"
         today = self._now_fn().date().isoformat()
+        if not bool(self.config.get("self_talk_enabled", True)):
+            return
         if self._fired_weather.get(tag) == today:
             return
-        if self._emit_tag(tag):
-            self._fired_weather[tag] = today
+        self._fired_weather[tag] = today  # 先占当天名额：立即说，或冷却到点后补说
+        self._emit_tag(tag, hold=True)
 
     def note_interaction(self):
         """摸头/单击互动发生时调用：刷新求关注计时。"""
@@ -215,21 +255,20 @@ class SelfTalkMonitor(QObject):
 
     # ---------- 开关与调度 ----------
     def _schedule(self):
-        # 关闭开关、文本库为空、间隔 0 都要显式停表（random 与情境检查一起停；文本不再来自语录库）
+        # 关闭开关或间隔 0 都要显式停心跳（间隔 0 = 不限冷却且无随机闲聊，
+        # 情境触发仍由下方 60s 检查驱动；文本始终由 AI 生成）
         enabled = bool(self.config.get("self_talk_enabled", True))
-        val = self.config.get("self_talk_interval", 300)
-        try:
-            sec = int(val if val is not None else 300)
-        except (TypeError, ValueError):
-            sec = 300
+        sec = self._interval()
         if not enabled:
             self._timer.stop()
             self._context_timer.stop()
+            self._pending[:] = []  # 丢弃冷却期内暂存的一次性触发，避免复启后补说旧事
             return
         if sec > 0:
             self._timer.start(sec * 1000)
         else:
-            self._timer.stop()  # 随机闲聊可单独设 0 关闭，情境触发不受影响
+            self._timer.stop()
+            self._pending[:] = []
         if not self._context_timer.isActive():
             self._context_timer.start(60000)
 
@@ -308,6 +347,10 @@ class DesktopPet:
         aud = audio_apps()
         if aud:
             parts.append("正在发声的应用（含后台播放的音乐/视频）：%s。" % "、".join(aud))
+        tr = media_track()
+        if tr:
+            parts.append("正在播放音乐：%s - %s（%s）。"
+                         % (tr.get("title"), tr.get("artist"), tr.get("app")))
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)
         if tag:
@@ -317,14 +360,18 @@ class DesktopPet:
 
     def _ask_ai(self, messages, meta):
         n = int(self.config.get("ai_context_n", 10) or 10)
-        msgs = ([{"role": "system", "content": self._system_prompt(meta.get("tag", ""))}]
-                + self.history.context(n) + messages)
-        self.ai.chat(msgs, meta)
+        msgs = self.history.context(n) + messages  # 主线程纯内存拼接（快）
+        # system prompt 组装（枚举窗口/采样音频/起 PowerShell 查歌曲）整体在
+        # AI worker 线程执行，避免摸头/对话时卡住 GUI（GIF 播放延迟的根因）
+        self.ai.chat(
+            msgs, meta,
+            system_fn=lambda: self._system_prompt(meta.get("tag", "")))
 
     def _on_selftalk_tag(self, tag):
+        reason = TAG_ZH.get(tag, tag)
         self._ask_ai(
             [{"role": "user",
-              "content": "（情境触发，请以桌宠身份自发说一句话，简短口语化。）"}],
+              "content": "（桌宠主动搭话，触发原因：%s。请围绕这个原因说一句应景的话，简短口语化。）" % reason}],
             {"kind": "selftalk", "tag": tag})
 
     def _show_pet_head(self):

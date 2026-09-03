@@ -7,6 +7,7 @@ import sys
 import time
 from ctypes import wintypes
 
+from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPlainTextEdit, QMessageBox
 from PyQt5.QtGui import QTextCursor
 
@@ -18,10 +19,15 @@ if sys.platform == "win32":
                     ("time", wintypes.DWORD), ("pt", wintypes.POINT)]
 
 
-class ChatHistory:
-    """保存全部消息（含自言自语），context() 只取参与对话的条目。"""
+class ChatHistory(QObject):
+    """保存全部消息（含自言自语），context() 只取参与对话的条目。
+
+    append 后发出 changed 信号，聊天记录查看窗口据此实时刷新。"""
+
+    changed = pyqtSignal()
 
     def __init__(self, path, max_n=200):
+        super().__init__()
         self.path = path
         self.max_n = max(10, int(max_n or 200))
         self.items = []
@@ -50,6 +56,7 @@ class ChatHistory:
         })
         self.items = self.items[-self.max_n:]
         self.save()
+        self.changed.emit()
 
     def context(self, n):
         """最近 n 条 user/assistant 消息（OpenAI messages 格式，不含 ts）。"""
@@ -63,20 +70,25 @@ class HistoryDialog(QDialog):
         self.history = history
         self.setWindowTitle("聊天记录")
         self.resize(420, 480)
-        view = QPlainTextEdit(self)
-        view.setReadOnly(True)
+        self.view = QPlainTextEdit(self)
+        self.view.setReadOnly(True)
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.view)
+        # 每次追加消息实时重绘并自动拉到底部（与刚打开时定位一致）
+        self.history.changed.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self):
         lines = []
-        for m in history.items:
+        for m in self.history.items:
             who = {"user": "我", "assistant": "桌宠"}.get(m.get("role"), m.get("role"))
             kind = {"selftalk": "自言自语", "head": "摸头", "chat": ""}.get(m.get("kind"), "")
             prefix = "[%s] %s%s：" % (m.get("ts", ""), who, ("（%s）" % kind) if kind else "")
             lines.append(prefix + str(m.get("content", "")))
-        view.setPlainText("\n\n".join(lines))
-        # 打开即定位到最新记录：光标移到末尾并滚动到底
-        view.moveCursor(QTextCursor.End)
-        view.verticalScrollBar().setValue(view.verticalScrollBar().maximum())
-        lay = QVBoxLayout(self)
-        lay.addWidget(view)
+        self.view.setPlainText("\n\n".join(lines))
+        # 打开/每次更新都定位到最新记录：光标移到末尾并滚动到底
+        self.view.moveCursor(QTextCursor.End)
+        self.view.verticalScrollBar().setValue(self.view.verticalScrollBar().maximum())
 
     def nativeEvent(self, eventType, message):
         # Windows 标题栏"?"按钮默认无动作，点击直接弹出说明

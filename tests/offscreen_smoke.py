@@ -18,8 +18,8 @@ from PyQt5.QtGui import QImage, QMouseEvent  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QPlainTextEdit  # noqa: E402
 
 from affection import AffectionSystem  # noqa: E402
-from ai_client import PRESETS  # noqa: E402
-from chat_history import ChatHistory  # noqa: E402
+from ai_client import PRESETS, strip_citations  # noqa: E402
+from chat_history import ChatHistory, HistoryDialog  # noqa: E402
 from config import Config  # noqa: E402
 from pet_window import PetWindow  # noqa: E402
 from scheduler import is_peak  # noqa: E402
@@ -31,7 +31,7 @@ import weather as weather_mod  # noqa: E402
 app = QApplication(sys.argv)
 tmp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp")
 os.makedirs(tmp, exist_ok=True)
-for stale in ("config_selftalk.json", "hist.json"):
+for stale in ("config_selftalk.json", "hist.json", "hist_live.json"):
     p = os.path.join(tmp, stale)
     if os.path.exists(p):
         os.remove(p)
@@ -200,6 +200,9 @@ check("settings has web2api message limit spin",
 check("settings has balance tab controls",
       hasattr(dlg, "poll_spin") and hasattr(dlg, "work_label_check")
       and hasattr(dlg, "balance_check") and hasattr(dlg, "accounts_list"))
+check("settings has self-talk cooldown spin",
+      hasattr(dlg, "talk_interval")
+      and dlg.talk_interval.value() == int(cfg_aff.get("self_talk_interval", 300)))
 
 dlg_m = SettingsDialog(cfg_aff)
 dlg_m._on_models_loaded(["deepseek", "deepseek-thinking"], True)
@@ -209,45 +212,62 @@ check("models_loaded fills combo",
 dlg_m._on_models_loaded([], False)
 check("models load failure keeps editable input", dlg_m.model_combo.isEditable())
 
-# 7. SelfTalkMonitor: emits tags (no quote pools anymore)
+# 7. SelfTalkMonitor: 全局冷却——任意两次自言自语之间至少隔 self_talk_interval，
+#    对时段/健康/求关注/好感/天气/随机全部生效；冷却内的一次性触发暂存到点补放
 cfg2 = Config(os.path.join(tmp, "config_selftalk.json"))
 t10 = main_mod.SelfTalkMonitor(cfg2)
 tags = []
 t10.request_talk.connect(tags.append)
 from datetime import datetime as _dt  # noqa: E402
 
+clock = {"m": 10_000_000.0}
 t10._now_fn = lambda: _dt(2026, 8, 30, 8, 0)
-t10._check_context()
-check("morning window fires tag", "time_morning" in tags, tags)
-t10._now_fn = lambda: _dt(2026, 8, 30, 8, 10)
-t10._check_context()
-check("time window fires once per day", tags.count("time_morning") == 1)
-t10._mono_fn = lambda: 10_000_000.0
+t10._mono_fn = lambda: clock["m"]
 t10._idle_fn = lambda: 46 * 60
 t10._check_context()
-check("idle health tag fired", "health" in tags, tags)
+check("burst first trigger fires (morning)", tags == ["time_morning"], tags)
+clock["m"] += 1
 t10._check_context()
-check("health tag cooldown", tags.count("health") == 1)
+check("global cooldown holds other due triggers", tags == ["time_morning"], tags)
+clock["m"] += 300
 t10._check_context()
-check("attention tag fired after long no-interaction", "attention" in tags)
+check("next due context fires after cooldown (health)", tags == ["time_morning", "health"], tags)
+clock["m"] += 1
+t10._check_context()
+check("attention still held inside cooldown", tags == ["time_morning", "health"], tags)
+clock["m"] += 300
+t10._check_context()
+check("attention fires after next cooldown", tags == ["time_morning", "health", "attention"], tags)
+clock["m"] += 300
 t10.on_affection_tier("high")
-check("affection tier emits tag", "affection_high" in tags)
+check("affection fires when cooled", tags[-1] == "affection_high", tags)
 t10.set_weather("sunny")
+check("weather held by cooldown (not yet emitted)", tags[-1] == "affection_high", tags)
+clock["m"] += 300
+t10._fire_random()
+check("held one-shot released before random", tags[-1] == "weather_sunny", tags)
+t10.set_weather("sunny")
+clock["m"] += 300
+t10._fire_random()
+check("same weather once per day", tags[-1] == "random", tags)
+t10.set_weather("rainy")
+clock["m"] += 300
+t10._fire_random()
+check("different weather fires after cooldown", tags[-1] == "weather_rainy", tags)
 tags11 = []
 t11 = main_mod.SelfTalkMonitor(cfg2)
 t11.request_talk.connect(tags11.append)
+clock11 = {"m": 20_000_000.0}
+t11._mono_fn = lambda: clock11["m"]
 t11.on_balance_change("up")
+clock11["m"] += 1
 t11.on_balance_change("up")  # 冷却内不再触发
 t11.on_balance_change("flat", working_hold=True)  # 余额下降保持期内不触发"空闲中"
 check("work tags throttled and hold-aware", tags11 == ["work_up"], tags11)
 t11._last_work_quote["flat"] = 0.0
+clock11["m"] += 301
 t11.on_balance_change("flat")
 check("flat work tag emitted", tags11 == ["work_up", "work_flat"], tags11)
-check("weather tag fires", "weather_sunny" in tags)
-t10.set_weather("sunny")
-check("same weather once per day", tags.count("weather_sunny") == 1)
-t10.set_weather("rainy")
-check("different weather fires", "weather_rainy" in tags)
 cfg2.set("self_talk_enabled", False)
 check("disabled switch blocks emit", t10._emit_tag("random") is False)
 
@@ -433,6 +453,14 @@ check("deepseek open platform preset exists",
       and PRESETS["deepseek_open"]["base_url"].startswith("https://api.deepseek.com")
       and PRESETS["deepseek_open"]["model"] == "deepseek-chat")
 
+# 10.7 AI 回复自动去掉 [citation:N] 联网搜索标签
+check("citation tags stripped inline",
+      strip_citations("你好，今天开心[citation:1]，明天也[citation:2]开心")
+      == "你好，今天开心，明天也开心")
+_stripped = strip_citations("好的。\n\n[citation:1]\n来源：参考资料")
+check("citation whole-line tags removed",
+      "citation" not in _stripped and _stripped.endswith("来源：参考资料"), _stripped)
+
 # 10.5 web2api manager: probe monkeypatched, rebind button wired
 import web2api as w2a  # noqa: E402
 
@@ -520,6 +548,66 @@ if sys.platform == "win32":
     check("prompt mentions audible apps when any",
           (("正在发声的应用" in _prompt_aud) if _aud else True),
           _prompt_aud[:180])
+    check("smtc json parse",
+          ra_mod._parse_smtc('[OK] sessions=1\n{"App":"cloudmusic.exe","Title":"歌","Artist":"人"}')
+          == [{"App": "cloudmusic.exe", "Title": "歌", "Artist": "人"}])
+    check("smtc empty parse", ra_mod._parse_smtc("[OK] sessions=0\n[]") == [])
+    _track = ra_mod.media_track()
+    check("media_track returns track dict or None",
+          _track is None or (isinstance(_track, dict) and _track.get("app") and _track.get("title")),
+          _track)
+    _prompt_track = pet2._system_prompt()
+    check("prompt includes playing music when any",
+          (("正在播放音乐" in _prompt_track) if _track else True))
+
+# 11.4 prompt 组装在 AI worker 线程：摸头/对话不再被系统感知卡住 GUI
+import ai_client as ai_mod  # noqa: E402
+import threading as _threading  # noqa: E402
+import time as _time  # noqa: E402
+
+_orig_env = (main_mod.running_apps, main_mod.audio_apps, main_mod.media_track)
+_heavy = {"n": 0, "thread": ""}
+
+
+def _heavy_slow(*a, **k):
+    _heavy["n"] += 1
+    _heavy["thread"] = _threading.current_thread().name
+    _time.sleep(0.3)  # 模拟 media_track/audio_apps 的阻塞开销
+    return []
+
+
+main_mod.running_apps = _heavy_slow
+main_mod.audio_apps = _heavy_slow
+main_mod.media_track = _heavy_slow
+
+
+class _FakeAIResp:
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"choices": [{"message": {"content": "好的"}}]}
+
+
+_orig_post = ai_mod.requests.post
+ai_mod.requests.post = lambda *a, **k: _FakeAIResp()
+_ai_off = ai_mod.AIClient(pet2.config)
+_ai_replies = []
+_ai_off.reply.connect(lambda text, ok, meta: _ai_replies.append(text))
+_t_start = _time.monotonic()
+pet2.ai = _ai_off
+pet2._ask_ai([{"role": "user", "content": "你好"}], {"kind": "chat"})
+_dt_ask = _time.monotonic() - _t_start
+check("_ask_ai returns before env snapshot finishes",
+      _dt_ask < 0.15, _dt_ask)
+wait(1500)
+check("env snapshot runs in worker thread (GUI not blocked)",
+      _heavy["n"] >= 2 and _heavy["thread"] != "MainThread",
+      (_heavy["n"], _heavy["thread"]))
+check("worker reply received after threaded prompt build",
+      _ai_replies == ["好的"], _ai_replies)
+ai_mod.requests.post = _orig_post
+(main_mod.running_apps, main_mod.audio_apps, main_mod.media_track) = _orig_env
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()
@@ -530,6 +618,19 @@ check("history dialog scrolled to latest",
       bool(_hist_views)
       and _hist_views[0].verticalScrollBar().value() == _hist_views[0].verticalScrollBar().maximum(),
       (_hist_views[0].verticalScrollBar().value(), _hist_views[0].verticalScrollBar().maximum()) if _hist_views else None)
+
+# 11.55 聊天记录窗口：打开期间实时刷新，每次更新自动拉到底部
+hist_live = ChatHistory(os.path.join(tmp, "hist_live.json"), max_n=50)
+hist_live.append("user", "旧消息", "chat")
+dlg_live = HistoryDialog(hist_live)
+dlg_live.show()
+app.processEvents()
+hist_live.append("assistant", "新消息实时进来", "chat")
+app.processEvents()
+check("history dialog updates live", "新消息实时进来" in dlg_live.view.toPlainText())
+_live_sb = dlg_live.view.verticalScrollBar()
+check("history auto-scrolls to bottom on each update",
+      _live_sb.value() == _live_sb.maximum(), (_live_sb.value(), _live_sb.maximum()))
 if sys.platform == "win32":
     # 11.6 标题栏"?"按钮（SC_CONTEXTHELP）触发说明弹窗
     import ctypes

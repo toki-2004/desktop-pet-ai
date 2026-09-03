@@ -271,13 +271,17 @@ class SettingsDialog(QDialog):
         self.fallback_edit = QLineEdit(self.config.get("ai_fallback_text", "唔……我现在有点短路了"))
         form.addRow("兜底文本", self.fallback_edit)
 
-        self.talk_check = QCheckBox("启用自言自语（情境触发 + 定时随机）")
+        self.talk_check = QCheckBox("启用自言自语（情境触发 + 冷却到点随机闲聊）")
         self.talk_check.setChecked(bool(self.config.get("self_talk_enabled", True)))
         form.addRow(self.talk_check)
         self.talk_interval = QSpinBox(); self.talk_interval.setRange(0, 1800)
         self.talk_interval.setValue(int(self.config.get("self_talk_interval", 300)))
         self.talk_interval.setSuffix(" 秒")
-        form.addRow("随机自言自语间隔（0=仅情境触发）", self.talk_interval)
+        self.talk_interval.setToolTip(
+            "任意两次自言自语之间的最小间隔（冷却），对情境触发与随机触发都生效：\n"
+            "间隔内到的触发会等冷却结束再发声，避免多个触发同时挤在一起。\n"
+            "0 = 不限间隔且没有随机闲聊（仅保留情境触发）。")
+        form.addRow("自言自语冷却间隔（0=仅情境触发）", self.talk_interval)
         if self._rebind_callback is not None:
             self.rebind_btn = QPushButton("重新绑定（清空旧登录态，打开登录页切换账号）")
             self.rebind_btn.clicked.connect(self._rebind)
