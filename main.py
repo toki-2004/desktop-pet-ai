@@ -27,7 +27,7 @@ from affection import AffectionSystem
 from ai_client import AIClient, PRESETS
 from chat_history import ChatHistory, HistoryDialog
 from balance import BalanceMonitor
-from running_apps import running_apps
+from running_apps import audio_apps, running_apps
 import autostart
 import web2api
 
@@ -305,6 +305,9 @@ class DesktopPet:
             parts.append(
                 "当前打开的应用（排最前的为前台窗口，可据此判断主人在做什么）：%s。"
                 % "；".join(apps))
+        aud = audio_apps()
+        if aud:
+            parts.append("正在发声的应用（含后台播放的音乐/视频）：%s。" % "、".join(aud))
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)
         if tag:

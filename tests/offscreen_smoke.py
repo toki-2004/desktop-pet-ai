@@ -512,6 +512,14 @@ if sys.platform == "win32":
     check("prompt includes running apps",
           (("当前打开的应用" in _prompt_full) if _apps else True),
           _prompt_full[:150])
+    _aud = ra_mod.audio_apps()
+    check("audio apps returns str list",
+          isinstance(_aud, list) and all(isinstance(a, str) and a for a in _aud),
+          _aud[:3])
+    _prompt_aud = pet2._system_prompt()
+    check("prompt mentions audible apps when any",
+          (("正在发声的应用" in _prompt_aud) if _aud else True),
+          _prompt_aud[:180])
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()
