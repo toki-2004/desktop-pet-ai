@@ -696,6 +696,18 @@ pet2.STARTUP_AI_DELAY_S = 10.0
 pet2._start_mono = _time.monotonic() - 30.0
 pet2.ai = _ai_off
 
+# 11.47 AI 生成失败：兜底文本只弹气泡提示连接波动，不计入聊天记录
+_hist_before = len(pet2.history.items)
+pet2._last_balloon_at = _time.monotonic() - 6.0
+pet2._on_ai_reply("", False, {"kind": "chat"})
+app.processEvents()
+check("ai failure fallback not recorded in history",
+      len(pet2.history.items) == _hist_before,
+      (len(pet2.history.items), _hist_before))
+check("ai failure fallback shown as balloon notice",
+      pet2._balloon is not None and "短路" in pet2._balloon._text,
+      pet2._balloon._text if pet2._balloon else None)
+
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()
 app.processEvents()

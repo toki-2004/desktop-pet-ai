@@ -428,9 +428,11 @@ class DesktopPet:
         if not ok:
             # 请求失败后服务可能重连并新开对话：下一条请求重注入人设
             self._convo_primed = False
-            if not bool(self.config.get("ai_fallback_enabled", True)):
-                return
-            text = str(self.config.get("ai_fallback_text", "唔……我现在有点短路了"))
+            # 兜底文本只作为连接波动提示弹气泡，不计入聊天记录
+            if bool(self.config.get("ai_fallback_enabled", True)):
+                self._show_balloon(
+                    str(self.config.get("ai_fallback_text", "唔……我现在有点短路了")))
+            return
         self.history.append("assistant", text, kind=kind)
         self._show_balloon(text)
 
