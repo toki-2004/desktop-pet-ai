@@ -533,6 +533,10 @@ check("prompt tag translated to neutral zh",
       "天气晴朗" in pet2._system_prompt("weather_sunny")
       and "weather_sunny" not in pet2._system_prompt("weather_sunny")
       and "深夜时段" in pet2._system_prompt("time_midnight"))
+check("work trigger tags describe AI own state",
+      main_mod.TAG_ZH["work_up"] == "自己刚收到充值（余额上升）"
+      and main_mod.TAG_ZH["work_down"] == "自己开始工作了（余额下降）"
+      and main_mod.TAG_ZH["work_flat"] == "自己空闲了（余额平稳）")
 if sys.platform == "win32":
     # 11.45 prompt 注入"当前打开的应用"（前台优先，供 AI 判断主人在做什么）
     import running_apps as ra_mod

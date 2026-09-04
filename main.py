@@ -75,9 +75,9 @@ TAG_ZH = {
     "affection_high": "好感度达到高位",
     "affection_mid": "好感度保持中等",
     "affection_low": "好感度处于低位",
-    "work_up": "主人充值了",
-    "work_down": "主人开始工作了",
-    "work_flat": "主人空闲了",
+    "work_up": "自己刚收到充值（余额上升）",
+    "work_down": "自己开始工作了（余额下降）",
+    "work_flat": "自己空闲了（余额平稳）",
     "weather_sunny": "天气晴朗",
     "weather_cloudy": "天气多云",
     "weather_rainy": "天气有雨",
@@ -354,8 +354,9 @@ class DesktopPet:
                 parts.append(text)
         parts.extend([
             "当前情境：%s；%s。" % (period, tier_map.get(tier, tier)),
-            "工作状态：%s。注意：该状态指我（AI/本机后台）是否在跑任务，"
-            "不是主人的工作状态；主人此刻在做什么请以“当前打开的应用”为准。" % work,
+            "工作状态：%s。注意：该状态描述我自己（AI/本机后台）："
+            "工作中/空闲中 = 我在不在跑任务，充值了 = 我的账户到账；"
+            "它不是主人的工作状态，主人此刻在做什么请以“当前打开的应用”为准。" % work,
             "当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"),
         ])
         apps = running_apps()
