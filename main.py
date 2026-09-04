@@ -75,9 +75,9 @@ TAG_ZH = {
     "affection_high": "好感度达到高位",
     "affection_mid": "好感度保持中等",
     "affection_low": "好感度处于低位",
-    "work_up": "自己刚收到充值（余额上升）",
-    "work_down": "自己开始工作了（余额下降）",
-    "work_flat": "自己空闲了（余额平稳）",
+    "work_up": "桌宠刚收到充值",
+    "work_down": "桌宠开始工作了",
+    "work_flat": "桌宠空闲了",
     "weather_sunny": "天气晴朗",
     "weather_cloudy": "天气多云",
     "weather_rainy": "天气有雨",
@@ -374,7 +374,7 @@ class DesktopPet:
         if getattr(self, "_last_weather", ""):
             parts.append("当前天气：%s。" % self._last_weather)
         if tag:
-            parts.append("本次触发情境：%s。" % TAG_ZH.get(tag, tag))
+            parts.append("本次搭话背景：%s。" % TAG_ZH.get(tag, tag))
         parts.append("回复要非常简短（一两句话），不要复述情境描述。")
         return "\n".join(parts)
 
@@ -405,7 +405,10 @@ class DesktopPet:
         reason = TAG_ZH.get(tag, tag)
         self._ask_ai(
             [{"role": "user",
-              "content": "（桌宠主动搭话，触发原因：%s。请围绕这个原因说一句应景的话，简短口语化。）" % reason}],
+              "content": "（桌宠主动找主人搭话。搭话背景：%s。请以桌宠自己的"
+                         "视角自然地开口：结合上面的实时情境（如正在播放的"
+                         "音乐、主人打开的应用、天气等）说一句应景的话，"
+                         "简短口语化，不要生硬复述背景文字。）" % reason}],
             {"kind": "selftalk", "tag": tag})
 
     def _show_pet_head(self):

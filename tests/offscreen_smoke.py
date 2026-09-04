@@ -534,9 +534,9 @@ check("prompt tag translated to neutral zh",
       and "weather_sunny" not in pet2._system_prompt("weather_sunny")
       and "深夜时段" in pet2._system_prompt("time_midnight"))
 check("work trigger tags describe AI own state",
-      main_mod.TAG_ZH["work_up"] == "自己刚收到充值（余额上升）"
-      and main_mod.TAG_ZH["work_down"] == "自己开始工作了（余额下降）"
-      and main_mod.TAG_ZH["work_flat"] == "自己空闲了（余额平稳）")
+      main_mod.TAG_ZH["work_up"] == "桌宠刚收到充值"
+      and main_mod.TAG_ZH["work_down"] == "桌宠开始工作了"
+      and main_mod.TAG_ZH["work_flat"] == "桌宠空闲了")
 if sys.platform == "win32":
     # 11.45 prompt 注入"当前打开的应用"（前台优先，供 AI 判断主人在做什么）
     import running_apps as ra_mod
@@ -665,6 +665,13 @@ pet2._ask_ai([{"role": "user", "content": "失败后首条"}], {"kind": "chat"})
 check("builtin retry after failure carries persona again",
       len(_cap2) == 4 and "小鲸桌宠" in _cap2[3][1],
       _cap2[3][1][:80] if len(_cap2) > 3 else None)
+_cap2[:] = []
+pet2._on_selftalk_tag("work_flat")
+check("selftalk frames reason as pet's own and invites realtime topic",
+      len(_cap2) == 1
+      and "搭话背景：桌宠空闲了。" in _cap2[0][0][-1]["content"]
+      and "正在播放的音乐" in _cap2[0][0][-1]["content"],
+      _cap2[0][0][-1]["content"] if _cap2 else None)
 (main_mod.running_apps, main_mod.audio_apps, main_mod.media_track) = _sense_saved
 pet2.config.set("ai_preset", _preset_saved)
 pet2.config.set("ai_persona", _persona_saved)
