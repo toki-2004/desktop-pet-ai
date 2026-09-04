@@ -75,9 +75,9 @@ TAG_ZH = {
     "affection_high": "好感度达到高位",
     "affection_mid": "好感度保持中等",
     "affection_low": "好感度处于低位",
-    "work_up": "余额增加",
-    "work_down": "余额减少",
-    "work_flat": "余额平稳",
+    "work_up": "主人充值了",
+    "work_down": "主人开始工作了",
+    "work_flat": "主人空闲了",
     "weather_sunny": "天气晴朗",
     "weather_cloudy": "天气多云",
     "weather_rainy": "天气有雨",
@@ -250,8 +250,11 @@ class SelfTalkMonitor(QObject):
         self._emit_tag(tag, hold=True)
 
     def note_interaction(self):
-        """摸头/单击互动发生时调用：刷新求关注计时。"""
-        self._last_pat = self._mono_fn()
+        """摸头/主动聊天等用户互动发生时调用：刷新求关注计时，并把互动计入
+        自言自语冷却——互动后的一段时间内桌宠不再主动搭话。"""
+        now = self._mono_fn()
+        self._last_pat = now
+        self._last_talk = now
 
     # ---------- 开关与调度 ----------
     def _schedule(self):
@@ -274,8 +277,11 @@ class SelfTalkMonitor(QObject):
 
 
 class DesktopPet:
+    STARTUP_AI_DELAY_S = 10.0  # 重启后推迟首条 AI 请求，让"内置 AI 已就绪"先弹出
+
     def __init__(self):
         self.config = Config(CONFIG_PATH)
+        self._start_mono = time.monotonic()
         if not self.config.get("pet_image"):
             self.config.set(
                 "pet_image", DEFAULT_IMAGE if os.path.exists(DEFAULT_IMAGE) else ""
@@ -306,6 +312,9 @@ class DesktopPet:
         self._settings_dlg = None
         self.web2api = web2api.Manager()
         self.web2api.status.connect(self._on_web2api_status)
+        # 内置免费 AI（DeepSeek 网页对话）自带对话记录：人设只需在每次
+        # 新对话的第一条请求注入（启动/重连后的首请求），不逐条重复。
+        self._convo_primed = False
         self._wire()
         self._restore_position()
         if not self.config.get("pet_interact_image") and os.path.exists(DEFAULT_INTERACT):
@@ -319,6 +328,9 @@ class DesktopPet:
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
     def _on_web2api_status(self, ok, msg):
+        if msg:
+            # 服务拉起/重连/登录后 = DeepSeek 新对话：下一条请求重注入人设
+            self._convo_primed = False
         if msg == "login":
             self._show_balloon("即将清空旧登录态并打开全新的 DeepSeek 登录浏览器，可直接登录或切换账号；登录完成后关闭那个控制台窗口～")
             return
@@ -326,19 +338,26 @@ class DesktopPet:
             self._show_balloon(msg)
 
     # ---------- AI 生成 ----------
-    def _system_prompt(self, tag=""):
+    def _system_prompt(self, tag="", persona=True):
+        """组装 system prompt；persona=False 时只给动态情境，不再重复人设。"""
         tier_map = {"high": "好感度很高", "mid": "好感度一般", "low": "好感度较低"}
         tier = self.affection.tier()
-        work_map = {"up": "充值了（余额增加）", "down": "工作中（余额在下降）",
-                    "flat": "空闲中（余额平稳）", "unknown": "余额状态未知"}
-        work = work_map.get(self.window.work_label.current_state(), "余额状态未知")
+        work_map = {"up": "充值了", "down": "工作中",
+                    "flat": "空闲中", "unknown": "未知"}
+        work = work_map.get(self.window.work_label.current_state(), "未知")
         from scheduler import is_peak
         period = "高峰时段" if is_peak() else "空闲时段"
-        parts = [
-            str(self.config.get("ai_persona", "")).strip(),
-            "当前情境：%s；%s；工作状态：%s。" % (period, tier_map.get(tier, tier), work),
+        parts = []
+        if persona:
+            text = str(self.config.get("ai_persona", "")).strip()
+            if text:
+                parts.append(text)
+        parts.extend([
+            "当前情境：%s；%s。" % (period, tier_map.get(tier, tier)),
+            "工作状态：%s。注意：该状态指我（AI/本机后台）是否在跑任务，"
+            "不是主人的工作状态；主人此刻在做什么请以“当前打开的应用”为准。" % work,
             "当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"),
-        ]
+        ])
         apps = running_apps()
         if apps:
             parts.append(
@@ -359,13 +378,27 @@ class DesktopPet:
         return "\n".join(parts)
 
     def _ask_ai(self, messages, meta):
+        # 重启后 10 秒内不向后端发第一条请求：让"内置 AI 已就绪"等启动通知先
+        # 弹出并显示完，避免它覆盖桌宠刚启动时主动说的第一句话。
+        remain = (self._start_mono + self.STARTUP_AI_DELAY_S) - time.monotonic()
+        if remain > 0:
+            QTimer.singleShot(int(remain * 1000) + 20,
+                              lambda: self._ask_ai(messages, meta))
+            return
+        # 内置免费 AI 的网页对话自带上下文：人设 + 历史回放只放在每次新对话的
+        # 第一条请求（启动/重连后的首请求）；后续请求只发新消息 + 动态情境，
+        # 避免同一大段 prompt 反复出现在对话记录里导致 AI 回复刻板。
+        builtin = self.config.get("ai_preset") == "deepseek_web2api"
+        fresh = not builtin or not self._convo_primed
+        if fresh:
+            self._convo_primed = True
         n = int(self.config.get("ai_context_n", 10) or 10)
-        msgs = self.history.context(n) + messages  # 主线程纯内存拼接（快）
+        msgs = (self.history.context(n) if fresh else []) + messages  # 主线程纯内存拼接（快）
         # system prompt 组装（枚举窗口/采样音频/起 PowerShell 查歌曲）整体在
         # AI worker 线程执行，避免摸头/对话时卡住 GUI（GIF 播放延迟的根因）
         self.ai.chat(
             msgs, meta,
-            system_fn=lambda: self._system_prompt(meta.get("tag", "")))
+            system_fn=lambda: self._system_prompt(meta.get("tag", ""), persona=fresh))
 
     def _on_selftalk_tag(self, tag):
         reason = TAG_ZH.get(tag, tag)
@@ -389,6 +422,8 @@ class DesktopPet:
         meta = meta or {}
         kind = meta.get("kind", "chat")
         if not ok:
+            # 请求失败后服务可能重连并新开对话：下一条请求重注入人设
+            self._convo_primed = False
             if not bool(self.config.get("ai_fallback_enabled", True)):
                 return
             text = str(self.config.get("ai_fallback_text", "唔……我现在有点短路了"))
@@ -412,6 +447,7 @@ class DesktopPet:
         w.petHeadRequested.connect(lambda: self.talk.note_interaction())
         w.petHeadRequested.connect(lambda: self.affection.note_pet())
         w.chatInputRequested.connect(self._on_user_chat)
+        w.chatInputRequested.connect(lambda: self.talk.note_interaction())
         w.historyRequested.connect(self._open_history)
         w.balanceVisibleRequested.connect(self._on_balance_visible)
         w.moved.connect(self._on_moved)

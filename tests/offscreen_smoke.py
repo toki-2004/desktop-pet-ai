@@ -268,6 +268,11 @@ t11._last_work_quote["flat"] = 0.0
 clock11["m"] += 301
 t11.on_balance_change("flat")
 check("flat work tag emitted", tags11 == ["work_up", "work_flat"], tags11)
+clock11["m"] += 301
+t11.note_interaction()
+check("user interaction refreshes self-talk cooldown", t11._gate_open() is False)
+clock11["m"] += 300
+check("interaction cooldown expires after interval", t11._gate_open() is True)
 cfg2.set("self_talk_enabled", False)
 check("disabled switch blocks emit", t10._emit_tag("random") is False)
 
@@ -595,6 +600,7 @@ _ai_off = ai_mod.AIClient(pet2.config)
 _ai_replies = []
 _ai_off.reply.connect(lambda text, ok, meta: _ai_replies.append(text))
 _t_start = _time.monotonic()
+pet2._start_mono = _time.monotonic() - 30.0  # 跳过重启后 10s 首条延迟（另测）
 pet2.ai = _ai_off
 pet2._ask_ai([{"role": "user", "content": "你好"}], {"kind": "chat"})
 _dt_ask = _time.monotonic() - _t_start
@@ -608,6 +614,76 @@ check("worker reply received after threaded prompt build",
       _ai_replies == ["好的"], _ai_replies)
 ai_mod.requests.post = _orig_post
 (main_mod.running_apps, main_mod.audio_apps, main_mod.media_track) = _orig_env
+
+# 11.45 内置免费 AI：人设只在每次新对话的第一条注入（启动/重连首请求），
+#       后续请求不重复人设、也不回放已被网页对话记录覆盖的历史
+_cap2 = []
+
+
+class _CaptureAI(ai_mod.AIClient):
+    def chat(self, messages, meta=None, system_fn=None):
+        _cap2.append(([dict(m) for m in messages], system_fn()))
+
+
+_preset_saved = pet2.config.get("ai_preset", "")
+_persona_saved = pet2.config.get("ai_persona", "")
+_fallback_saved = bool(pet2.config.get("ai_fallback_enabled", True))
+_sense_saved = (main_mod.running_apps, main_mod.audio_apps, main_mod.media_track)
+main_mod.running_apps = main_mod.audio_apps = main_mod.media_track = (lambda *a, **k: [])
+pet2.config.set("ai_preset", "deepseek_web2api")
+pet2.config.set("ai_persona", "测试人设：小鲸桌宠")
+pet2.config.set("ai_fallback_enabled", False)
+pet2._convo_primed = False
+pet2._start_mono = _time.monotonic() - 30.0  # 跳过重启后 10s 首条延迟（另测）
+pet2.ai = _CaptureAI(pet2.config)
+pet2._ask_ai([{"role": "user", "content": "第一条"}], {"kind": "chat"})
+pet2._ask_ai([{"role": "user", "content": "第二条"}], {"kind": "chat"})
+check("builtin first request carries persona",
+      len(_cap2) == 2 and "小鲸桌宠" in _cap2[0][1],
+      _cap2[0][1][:80] if _cap2 else None)
+check("builtin later requests skip persona",
+      len(_cap2) == 2 and "小鲸桌宠" not in _cap2[1][1],
+      _cap2[1][1][:80] if len(_cap2) > 1 else None)
+check("builtin later requests skip history replay",
+      len(_cap2) == 2 and _cap2[1][0] == [{"role": "user", "content": "第二条"}],
+      _cap2[1][0] if len(_cap2) > 1 else None)
+pet2._convo_primed = True
+pet2._on_web2api_status(True, "内置 AI 已就绪")
+check("service ready resets priming", pet2._convo_primed is False)
+pet2._ask_ai([{"role": "user", "content": "重连首条"}], {"kind": "chat"})
+check("builtin reconnect first request carries persona again",
+      len(_cap2) == 3 and "小鲸桌宠" in _cap2[2][1],
+      _cap2[2][1][:80] if len(_cap2) > 2 else None)
+pet2._convo_primed = True
+pet2._on_ai_reply("", False, {"kind": "chat"})
+check("failed request resets priming", pet2._convo_primed is False)
+pet2._ask_ai([{"role": "user", "content": "失败后首条"}], {"kind": "chat"})
+check("builtin retry after failure carries persona again",
+      len(_cap2) == 4 and "小鲸桌宠" in _cap2[3][1],
+      _cap2[3][1][:80] if len(_cap2) > 3 else None)
+(main_mod.running_apps, main_mod.audio_apps, main_mod.media_track) = _sense_saved
+pet2.config.set("ai_preset", _preset_saved)
+pet2.config.set("ai_persona", _persona_saved)
+pet2.config.set("ai_fallback_enabled", _fallback_saved)
+pet2.ai = _ai_off
+
+# 11.46 重启后 10s 内不发首条 AI 请求：让"内置 AI 已就绪"先弹出，避免覆盖
+#      桌宠刚启动时主动说的第一句话
+pet2.STARTUP_AI_DELAY_S = 0.3
+pet2._start_mono = _time.monotonic()
+pet2._convo_primed = False
+pet2.ai = _CaptureAI(pet2.config)
+_cap2[:] = []
+pet2._ask_ai([{"role": "user", "content": "开场白"}], {"kind": "chat"})
+check("startup first request deferred until delay", _cap2 == [], _cap2)
+wait(600)
+check("deferred first request sent after delay",
+      len(_cap2) == 1 and _cap2[0][0][-1] == {"role": "user", "content": "开场白"}
+      and "小鲸桌宠" not in _cap2[0][1],  # 人设由独立用例覆盖，这里只验证延迟发送
+      _cap2)
+pet2.STARTUP_AI_DELAY_S = 10.0
+pet2._start_mono = _time.monotonic() - 30.0
+pet2.ai = _ai_off
 
 # 11.5 history dialog survives GC (kept reference on self)
 pet2._open_history()
