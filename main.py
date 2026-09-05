@@ -354,7 +354,7 @@ class DesktopPet:
                 parts.append(text)
         parts.extend([
             "当前情境：%s；%s。" % (period, tier_map.get(tier, tier)),
-            "工作状态：%s。注意：该状态描述我自己（AI/本机后台）："
+            "工作状态：%s。注意：该状态描述桌宠："
             "工作中/空闲中 = 我在不在跑任务，充值了 = 我的账户到账；"
             "它不是主人的工作状态，主人此刻在做什么请以“当前打开的应用”为准。" % work,
             "当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"),
