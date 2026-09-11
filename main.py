@@ -426,8 +426,10 @@ class DesktopPet:
         meta = meta or {}
         kind = meta.get("kind", "chat")
         if not ok:
-            # 请求失败后服务可能重连并新开对话：下一条请求重注入人设
-            self._convo_primed = False
+            # 只有真断线（服务重连/换新对话）才重注入人设；单纯超时是 AI 还在
+            # 读网页/思考，会话没断，重注入只会反复污染对话、让回复变刻板。
+            if not meta.get("timeout"):
+                self._convo_primed = False
             # 兜底文本只作为连接波动提示弹气泡，不计入聊天记录
             if bool(self.config.get("ai_fallback_enabled", True)):
                 self._show_balloon(

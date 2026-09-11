@@ -73,16 +73,24 @@ class AIClient(QObject):
         headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = "Bearer " + key
+        # 连接超时短（服务没起来立刻失败），读超时长：内置免费 AI 读网页/思考
+        # 可能一两分钟不出结果，此时并没有短路，给足时间别过早弹兜底文本。
+        read_timeout = float(self.config.get("ai_timeout_s", 300) or 300)
         try:
             r = requests.post(
                 base + "/chat/completions",
                 json={"model": model, "messages": messages},
                 headers=headers,
-                timeout=60,
+                timeout=(10, read_timeout),
             )
             r.raise_for_status()
             text = strip_citations(r.json()["choices"][0]["message"]["content"])
             self.reply.emit(text, True, meta)
+        except requests.Timeout as e:
+            # 超时只代表"还没回"：会话大概率仍完好（厂商侧可能已把这条消息
+            # 写进对话并在继续生成），meta 带标记供上层跳过人设重注入。
+            petlog.log("ai request timed out after %ss: %s" % (read_timeout, e))
+            self.reply.emit("", False, dict(meta or {}, timeout=True))
         except Exception as e:
             petlog.log("ai request failed: %s" % e)
             self.reply.emit("", False, meta)

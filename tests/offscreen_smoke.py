@@ -665,6 +665,47 @@ pet2._ask_ai([{"role": "user", "content": "失败后首条"}], {"kind": "chat"})
 check("builtin retry after failure carries persona again",
       len(_cap2) == 4 and "小鲸桌宠" in _cap2[3][1],
       _cap2[3][1][:80] if len(_cap2) > 3 else None)
+
+# 11.45a 兜底留足时间：请求读超时用 ai_timeout_s（默认 5 分钟，旧的 60s 会在
+#        AI 读网页/思考时误判兜底）；超时 ≠ 断线，不重置人设注入标记
+import config as config_mod  # noqa: E402
+
+check("default ai read timeout is generous",
+      float(config_mod.DEFAULT_CONFIG.get("ai_timeout_s", 0)) >= 120,
+      config_mod.DEFAULT_CONFIG.get("ai_timeout_s"))
+_probe_kw = {}
+
+
+def _probe_post(*a, **k):
+    _probe_kw.update(k)
+    return _FakeAIResp()
+
+
+ai_mod.requests.post = _probe_post
+_ai_probe = ai_mod.AIClient(pet2.config)
+_probe_replies = []
+_ai_probe.reply.connect(lambda text, ok, meta: _probe_replies.append((text, ok, meta)))
+_ai_probe._worker([{"role": "user", "content": "x"}], {"kind": "chat"})
+check("ai request uses connect/read timeout from config",
+      _probe_kw.get("timeout") == (10, float(pet2.config.get("ai_timeout_s", 300))),
+      _probe_kw.get("timeout"))
+
+
+def _probe_timeout(*a, **k):
+    raise ai_mod.requests.Timeout("read timed out")
+
+
+ai_mod.requests.post = _probe_timeout
+_ai_probe._worker([{"role": "user", "content": "x"}], {"kind": "chat"})
+check("timeout marks meta for the caller",
+      bool(_probe_replies) and _probe_replies[-1][1] is False
+      and _probe_replies[-1][2].get("timeout") is True,
+      _probe_replies[-1] if _probe_replies else None)
+ai_mod.requests.post = _orig_post
+pet2._convo_primed = True
+pet2._on_ai_reply("", False, {"kind": "chat", "timeout": True})
+check("timeout failure keeps priming (no persona re-injection)",
+      pet2._convo_primed is True)
 _cap2[:] = []
 pet2._on_selftalk_tag("work_flat")
 check("selftalk frames reason as pet's own and invites realtime topic",
