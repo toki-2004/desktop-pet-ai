@@ -1127,11 +1127,34 @@ check("webchat accepts a chat message", _code == 200 and _body.get("ok") is True
 check("webchat forwards the message for the pet to send", _wc_sent == ["在吗"], _wc_sent)
 _code, _body = _http(_wc_base + "/api/chat?k=tok123", data=b"{}")
 check("webchat rejects empty text", _code == 400, (_code, _body))
+
+# 网页传图：data URL → 临时文件 → 交给桌宠那条发图链路
+_img_bytes = open(send_png, "rb").read()
+_img_data_url = "data:image/png;base64," + _b64.b64encode(_img_bytes).decode("ascii")
+_wc_imgs = []
+wc.imageRequested.connect(_wc_imgs.append, Qt.DirectConnection)
+_code, _body = _http(_wc_base + "/api/image?k=tok123",
+                     data=json.dumps({"image": _img_data_url}).encode("utf-8"))
+check("webchat accepts an uploaded image", _code == 200 and _body.get("ok") is True,
+      (_code, _body))
+check("webchat writes the image to a temp file for the pet",
+      len(_wc_imgs) == 1 and os.path.exists(_wc_imgs[0])
+      and open(_wc_imgs[0], "rb").read() == _img_bytes, _wc_imgs)
+_code, _body = _http(_wc_base + "/api/image?k=tok123",
+                     data=json.dumps({"image": "data:text/plain;base64,aGk="}).encode("utf-8"))
+check("webchat rejects a non-image upload", _code == 400 and not _body.get("ok"), (_code, _body))
+_code, _body = _http(_wc_base + "/api/image?k=tok123", data=b"{}")
+check("webchat rejects an empty upload", _code == 400, (_code, _body))
 with urllib.request.urlopen(_wc_base + "/?k=tok123", timeout=5) as _r:
     _page = _r.read().decode("utf-8")
 check("webchat serves the page with pat + live refresh",
       "桌宠聊天" in _page and "/api/chat" in _page and "/api/pat" in _page
       and "setInterval" in _page)
+check("webchat page offers image upload",
+      "/api/image" in _page and 'accept="image/*"' in _page and "shrink(" in _page)
+check("webchat keeps affection/pat bar pinned to the top",
+      "#head{position:fixed;left:0;right:0;top:0" in _page
+      and "position:sticky" not in _page and "#list{padding:56px" in _page)
 wc.stop()
 _closed = False
 try:
@@ -1144,6 +1167,7 @@ check("webchat stops with the pet (port released)", _closed, _closed)
 _pet_wc = webchat_mod.WebChat(pet2.history, port=0, token="", bind="127.0.0.1")
 _pet_wc.chatRequested.connect(pet2.window.chatInputRequested.emit)
 _pet_wc.patRequested.connect(pet2.window.do_head_pat)
+_pet_wc.imageRequested.connect(pet2._on_user_image)
 _pet_wc.state_fn = lambda: {"affection": pet2.affection.value(),
                             "tier": pet2.affection.tier()}
 _pet_wc.start()
@@ -1181,6 +1205,18 @@ _code, _body = _http("http://127.0.0.1:%d/api/state" % _pet_wc.port)
 check("webchat state reports affection and tier",
       _code == 200 and _body["affection"] == pet2.affection.value()
       and _body["tier"] == pet2.affection.tier(), _body)
+
+# 网页发的图 == 桌面拖图：历史留档 + 请求里带 image 路径
+_cap2[:] = []
+_code, _body = _http("http://127.0.0.1:%d/api/image" % _pet_wc.port,
+                     data=json.dumps({"image": _img_data_url}).encode("utf-8"))
+app.processEvents()
+check("web image reaches the pet like dropping a file on it",
+      _code == 200 and pet2.history.items
+      and "（发送了一张图片：" in pet2.history.items[-1]["content"]
+      and _cap2 and _cap2[-1][2] and os.path.exists(_cap2[-1][2]),
+      (pet2.history.items[-1:] if pet2.history.items else None,
+       _cap2[-1][2] if _cap2 else None))
 _pet_wc.stop()
 pet2.history = _hist_real2
 

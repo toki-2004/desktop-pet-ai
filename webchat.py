@@ -6,12 +6,58 @@
 局域网可见，因此默认要求一个 token（config.json 的 webchat_token）。
 """
 import json
+import base64
+import os
 import socket
+import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from PyQt5.QtCore import QObject, pyqtSignal
+
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+IMAGE_MIME_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg",
+                  "image/webp": ".webp", "image/gif": ".gif"}
+MAX_IMAGE_BYTES = 20 * 1024 * 1024   # 手机照片压过之后远小于这个数
+IMG_DIR = os.path.join(tempfile.gettempdir(), "pet_webchat_img")
+
+
+def save_data_url(data_url):
+    """data:image/...;base64,... → 临时图片文件路径（给桌宠那条发图链路用）。"""
+    head, _, payload = str(data_url).partition(",")
+    if not payload or not head.startswith("data:image/"):
+        return ""
+    mime = head[5:].split(";")[0].lower()
+    ext = IMAGE_MIME_EXT.get(mime)
+    if not ext:
+        return ""
+    try:
+        raw = base64.b64decode(payload, validate=False)
+    except Exception:
+        return ""
+    if not raw or len(raw) > MAX_IMAGE_BYTES:
+        return ""
+    os.makedirs(IMG_DIR, exist_ok=True)
+    _prune_old_images()
+    path = os.path.join(IMG_DIR, "web_%d%s" % (int(time.time() * 1000), ext))
+    with open(path, "wb") as f:
+        f.write(raw)
+    return path
+
+
+def _prune_old_images(max_age_s=6 * 3600):
+    """清掉超过 max_age_s 的临时图（ponytail: 只按时间清，不做引用计数）。"""
+    try:
+        now = time.time()
+        for name in os.listdir(IMG_DIR):
+            p = os.path.join(IMG_DIR, name)
+            if now - os.path.getmtime(p) > max_age_s:
+                os.remove(p)
+    except OSError:
+        pass
+
 
 # 单文件页面：2 秒轮询历史，纯 textContent 渲染（AI 文本不会被当 HTML 执行）
 PAGE = """<!doctype html>
@@ -22,14 +68,20 @@ PAGE = """<!doctype html>
 <style>
  html,body{margin:0;height:100%;background:#10141c;color:#e8ecf3;
    font:16px/1.5 "Microsoft YaHei",system-ui,sans-serif}
- #head{position:sticky;top:0;background:#161b25;border-bottom:1px solid #263041;
-   padding:8px 14px;display:flex;align-items:center;gap:10px}
- #head .t{font-weight:600}
- #head .a{margin-left:auto;color:#ffd166;font-weight:600}
- #pat{padding:8px 14px;border:0;border-radius:10px;background:#e8590c;color:#fff;
-   font-size:15px;font-weight:600}
+ /* 固定顶栏：好感 / 摸头常驻，不跟聊天记录一起滚走。
+    这里必须用 fixed 而不是 sticky —— sticky 的容纳块是 body，而 body 高度 100%，
+    长列表里滚过一屏它就会跟着滚出去（表现为"要往上翻好久才看到"）。*/
+ #head{position:fixed;left:0;right:0;top:0;z-index:10;background:#161b25;
+   border-bottom:1px solid #263041;padding:8px 14px;display:flex;
+   align-items:center;gap:8px;flex-wrap:nowrap;overflow:hidden}
+ #head .tt{font-weight:600;white-space:nowrap}
+ #head .c{color:#8b98ad;font-size:13px;white-space:nowrap}
+ #head .a{margin-left:auto;color:#ffd166;font-weight:600;white-space:nowrap}
+ #pat{flex:0 0 auto;padding:8px 14px;border:0;border-radius:10px;background:#e8590c;
+   color:#fff;font-size:15px;font-weight:600}
  #pat:disabled{background:#5a4634}
- #list{padding:12px 14px 90px}
+ #list{padding:56px 14px 90px}   /* 顶部留出固定栏的高度 */
+ @media (max-width:400px){#head .t,#head .tt{display:none}}
  .m{max-width:46em;margin:0 0 10px;padding:8px 12px;border-radius:12px;
    white-space:pre-wrap;word-break:break-word}
  .me{background:#2b6cb0;margin-left:auto}
@@ -42,13 +94,15 @@ PAGE = """<!doctype html>
  #send{padding:10px 16px;border:0;border-radius:10px;background:#3d8bff;
    color:#fff;font-size:16px}
  #send:disabled{background:#3a465c}
+ #pick{padding:10px 12px;border:0;border-radius:10px;background:#3a465c;
+   color:#fff;font-size:16px}
  #hint{position:fixed;left:0;right:0;bottom:66px;text-align:center;color:#8b98ad;
    font-size:13px;pointer-events:none}
  #new{position:fixed;left:50%;transform:translateX(-50%);bottom:74px;display:none;
    padding:6px 14px;border-radius:99px;background:#3d8bff;color:#fff;font-size:14px}
 </style></head><body>
 <div id="head">
-  <span class="t">桌宠聊天</span><small id="cnt" style="color:#8b98ad"></small>
+  <span class="tt">桌宠聊天</span><small class="c" id="cnt"></small>
   <span class="a" id="aff">好感 …</span>
   <button id="pat">摸头</button>
 </div>
@@ -56,7 +110,9 @@ PAGE = """<!doctype html>
 <div id="hint"></div>
 <div id="new">有新消息 ↓</div>
 <div id="bar"><input id="txt" placeholder="跟桌宠说点什么…" autocomplete="off">
+<button id="pick">图片</button>
 <button id="send">发送</button></div>
+<input id="file" type="file" accept="image/*" style="display:none">
 <script>
 var K = new URLSearchParams(location.search).get('k') || '';
 var api = function(p){ return p + (K ? '?k=' + encodeURIComponent(K) : ''); };
@@ -110,19 +166,8 @@ function send(){
   if (!text) return;
   el.value = ''; waiting = 1;
   // 先本地显示，别等下一轮轮询（发送后立刻能看到自己发的话）
-  var list = document.getElementById('list');
-  var box = document.createElement('div');
-  box.className = 'm me';
-  var t = document.createElement('div');
-  t.className = 't';
-  t.textContent = '刚刚 我';
-  box.appendChild(t);
-  var body = document.createElement('div');
-  body.textContent = text;
-  box.appendChild(body);
-  list.appendChild(box);
+  localEcho(text);
   document.getElementById('hint').textContent = '已发送，桌宠思考中…';
-  window.scrollTo(0, document.body.scrollHeight);
   fetch(api('/api/chat'), {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({text: text})}).then(function(r){ return r.json(); })
     .then(function(d){ if (d.error) { waiting = 0; document.getElementById('hint').textContent = d.error; } });
@@ -136,6 +181,68 @@ function pat(){
     .then(function(){ setTimeout(function(){ tick(false); }, 400); })  // 摸完刷新好感
     .then(function(){ setTimeout(function(){ b.disabled = false; }, 600); });
 }
+function shrink(file){
+  // 手机照片动辄好几 MB：先按最长边 1600 压成 JPEG 再传，快且不影响识图
+  return new Promise(function(resolve){
+    var fr = new FileReader();
+    fr.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        var max = 1600, w = img.width, h = img.height;
+        if (w <= max && h <= max && file.size <= 1500000) { resolve(fr.result); return; }
+        var scale = Math.min(1, max / Math.max(w, h));
+        var c = document.createElement('canvas');
+        c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = function(){ resolve(fr.result); };
+      img.src = fr.result;
+    };
+    fr.onerror = function(){ resolve(''); };
+    fr.readAsDataURL(file);
+  });
+}
+function localEcho(text){
+  var list = document.getElementById('list');
+  var box = document.createElement('div');
+  box.className = 'm me';
+  var t = document.createElement('div');
+  t.className = 't';
+  t.textContent = '刚刚 我';
+  box.appendChild(t);
+  var body = document.createElement('div');
+  body.textContent = text;
+  box.appendChild(body);
+  list.appendChild(box);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function sendImage(file){
+  if (!file) return;
+  waiting = 1;
+  document.getElementById('send').disabled = true;
+  document.getElementById('hint').textContent = '正在上传图片…';
+  localEcho('（发送了一张图片：' + file.name + '）');
+  shrink(file).then(function(dataUrl){
+    if (!dataUrl) throw new Error('读不出这张图');
+    return fetch(api('/api/image'), {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({image: dataUrl})});
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.error) { waiting = 0; document.getElementById('send').disabled = false;
+                   document.getElementById('hint').textContent = d.error; return; }
+    document.getElementById('hint').textContent = '已发送，桌宠看图思考中…';
+  }).catch(function(e){
+    waiting = 0; document.getElementById('send').disabled = false;
+    document.getElementById('hint').textContent = '图片发送失败：' + (e.message || e);
+  });
+}
+document.getElementById('pick').onclick = function(){ document.getElementById('file').click(); };
+document.getElementById('file').addEventListener('change', function(e){
+  var f = e.target.files && e.target.files[0];
+  e.target.value = '';           // 同一张图能连发
+  sendImage(f);
+});
 document.getElementById('send').onclick = send;
 document.getElementById('pat').onclick = pat;
 document.getElementById('new').onclick = function(){
@@ -169,6 +276,7 @@ class WebChat(QObject):
 
     chatRequested = pyqtSignal(str)
     patRequested = pyqtSignal()   # 网页点"摸头"：走桌宠单击摸头同一条链路
+    imageRequested = pyqtSignal(str)   # 网页传图：走桌宠拖图/粘贴截图同一条链路
 
     def __init__(self, history, port=8848, token="", bind="0.0.0.0", state_fn=None):
         super().__init__()
@@ -276,20 +384,33 @@ class WebChat(QObject):
                 if not self._authed(query):
                     self._send(401, json.dumps({"error": "token 不对"}))
                     return
-                if parsed.path != "/api/chat":
-                    if parsed.path == "/api/pat":
-                        owner.patRequested.emit()   # 跨线程 → 主线程摸头
-                        payload = owner.state()
-                        payload["ok"] = True
-                        self._send(200, json.dumps(payload, ensure_ascii=False))
-                        return
-                    self._send(404, json.dumps({"error": "not found"}))
-                    return
+                # 先把 body 读完：HTTP/1.1 keep-alive 下不读干净会污染同一条连接上的下一个请求
+                payload = {}
                 try:
                     length = int(self.headers.get("Content-Length") or 0)
-                    payload = json.loads(self.rfile.read(length) or b"{}")
+                    if length:
+                        payload = json.loads(self.rfile.read(length) or b"{}") or {}
                 except Exception:
                     self._send(400, json.dumps({"error": "请求格式不对"}))
+                    return
+                if parsed.path == "/api/pat":
+                    owner.patRequested.emit()   # 跨线程 → 主线程摸头
+                    out = owner.state()
+                    out["ok"] = True
+                    self._send(200, json.dumps(out, ensure_ascii=False))
+                    return
+                if parsed.path == "/api/image":
+                    path = save_data_url(payload.get("image") or "")
+                    if not path:
+                        self._send(400, json.dumps(
+                            {"error": "图片格式不支持或太大（20MB 上限）"},
+                            ensure_ascii=False))
+                        return
+                    owner.imageRequested.emit(path)   # 跨线程 → 主线程发图
+                    self._send(200, json.dumps({"ok": True}, ensure_ascii=False))
+                    return
+                if parsed.path != "/api/chat":
+                    self._send(404, json.dumps({"error": "not found"}))
                     return
                 text = str((payload or {}).get("text") or "").strip()
                 if not text:

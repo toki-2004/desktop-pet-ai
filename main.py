@@ -367,6 +367,8 @@ class DesktopPet:
         self.webchat.chatRequested.connect(self.window.chatInputRequested.emit)
         # 网页"摸头"走 window.do_head_pat：与鼠标单击桌宠完全一致（GIF + AI 反应 + 好感）
         self.webchat.patRequested.connect(self.window.do_head_pat)
+        # 网页传图走 _on_user_image：与拖图/粘贴截图完全一致
+        self.webchat.imageRequested.connect(self._on_user_image)
         if self.webchat.start():
             petlog.log("webchat listening: %s" % self.webchat.url())
             QApplication.instance().aboutToQuit.connect(self.webchat.stop)
