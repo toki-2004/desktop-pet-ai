@@ -115,7 +115,15 @@ export class DeepSeekClient {
         if (m) this.currentConversationId = m[1];
         return result;
       } catch (err) {
-        // 登录态没进对话界面：直接失败，别当"会话失效"重试（重试同样进不去，白等一轮）
+        // 疑似登录失效：可能只是页面还在加载/被切走，回首页重新进一次再试；
+        // 真的掉登录时第二次仍会失败，那时才把 login_required 抛给上层
+        if (err.code === 'login_required' && attempt === 0) {
+          logger.warn('login page seen, retrying after reload', { error: err.message });
+          this.messagesInConversation = 0;
+          this.currentConversationId = null;
+          await this.page.goto(this.config.targetUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+          continue;
+        }
         if (err.code === 'login_required') throw err;
         // 会话在网页端被用户删掉等失效场景：自动开新对话重试一次
         if (attempt === 0 && this._conversationLooksGone(responseState)) {
