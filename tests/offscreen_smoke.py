@@ -1326,6 +1326,125 @@ check("unreadable history is kept aside, not silently dropped",
       == '{"messages": [{"role": "us',
       _broken_files)
 
+# 11.96 睡眠机制
+import sleep as sleep_mod  # noqa: E402
+
+check("sleep trigger words", sleep_mod.trigger_kind("晚安啦") == "night"
+      and sleep_mod.trigger_kind("那我睡个午安") == "nap"
+      and sleep_mod.trigger_kind("在吗") == "")
+check("sleep reply text", "睡得正香" in sleep_mod.SLEEP_TEXT)
+
+
+class _Clock:
+    def __init__(self, t):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+_clk = _Clock(_time.mktime((2026, 9, 12, 13, 0, 0, 0, 0, -1)))
+_cfg_sleep = Config(os.path.join(tmp, "config_sleep.json"))
+_sm = sleep_mod.SleepMonitor(_cfg_sleep, now_fn=_clk)
+_sm.check()
+_sm.put_to_sleep("nap")
+check("nap at 13:00 wakes at 14:30 (clock beats the 2h timer)",
+      _sm.until() == _clk.t + 5400, (_sm.until() - _clk.t))
+_woke = []
+_sm.woke.connect(_woke.append)
+_clk.t += 5401
+check("sleep ends when the wake time passes",
+      _sm.check() is True and _woke == ["nap"] and not _sm.is_asleep())
+check("sleep state is cleared in config", not _cfg_sleep.get("sleep_kind"))
+
+_clk2 = _Clock(_time.mktime((2026, 9, 12, 23, 0, 0, 0, 0, -1)))
+_sm2 = sleep_mod.SleepMonitor(Config(os.path.join(tmp, "config_sleep.json")), now_fn=_clk2)
+_sm2.put_to_sleep("night")
+check("night at 23:00 wakes after 8h (before 08:30)",
+      _sm2.until() == _clk2.t + 8 * 3600, (_sm2.until() - _clk2.t))
+
+_cfg_restore = Config(os.path.join(tmp, "config_sleep2.json"))
+_cfg_restore.set("sleep_kind", "night")
+_cfg_restore.set("sleep_until", int(_clk.t + 3600))
+_sm3 = sleep_mod.SleepMonitor(_cfg_restore, now_fn=_clk)
+check("still asleep after a restart", _sm3.is_asleep() and _sm3.kind() == "night")
+_cfg_restore.set("sleep_until", int(_clk.t - 10))
+_sm4 = sleep_mod.SleepMonitor(_cfg_restore, now_fn=_clk)
+check("waking up was missed while the app was closed",
+      not _sm4.is_asleep() and _sm4.take_pending_wake() == "night")
+
+# 11.97 睡眠：说晚安→回复完才睡；睡着期间只回一句、好感与自言自语冻结；醒来第一句
+_hist_real3 = pet2.history
+pet2.history = ChatHistory(os.path.join(tmp, "hist_sleep.json"), 20)
+if os.path.exists(os.path.join(tmp, "hist_sleep.json")):
+    os.remove(os.path.join(tmp, "hist_sleep.json"))
+pet2.history = ChatHistory(os.path.join(tmp, "hist_sleep.json"), 20)
+_aff_real3 = pet2.affection
+pet2.affection = AffectionSystem(Config(os.path.join(tmp, "config_affection2.json")))
+pet2.ai = _CaptureAI(pet2.config)
+_sleep_real = pet2.sleep       # 换成测试专用的睡眠状态：别把用户真配置写成"睡着"
+pet2.sleep = sleep_mod.SleepMonitor(Config(os.path.join(tmp, "config_sleep3.json")))
+pet2.sleep.woke.connect(pet2._on_wake)
+pet2.sleep.wake_now()
+_cap2[:] = []
+pet2._on_user_chat("晚安")
+check("night trigger asks the AI before sleeping",
+      len(_cap2) == 1 and not pet2.sleep.is_asleep())
+pet2._on_ai_reply("晚安～做个好梦", True, {"kind": "chat"})
+check("pet falls asleep only after replying",
+      pet2.sleep.is_asleep() and pet2.sleep.kind() == "night")
+check("the good-night reply itself is recorded",
+      pet2.history.items and pet2.history.items[-1]["content"].startswith("晚安"))
+
+_items_before = len(pet2.history.items)
+_aff_before_sleep = pet2.affection.value()
+_cap2[:] = []
+pet2._last_balloon_at = 0.0
+pet2._on_user_chat("在吗")
+check("talking to a sleeping pet only gets the sleep line",
+      _cap2 == [] and len(pet2.history.items) == _items_before
+      and pet2._balloon is not None and "睡得正香" in pet2._balloon._text,
+      pet2._balloon._text if pet2._balloon else None)
+pet2._last_balloon_at = 0.0
+pet2.window.pet_asleep = False      # 模拟：即使窗口标志没同步，摸头也不该加好感
+pet2.window.petHeadRequested.emit()
+check("patting a sleeping pet adds no affection (and no AI call)",
+      pet2.affection.value() == _aff_before_sleep and _cap2 == [],
+      (pet2.affection.value(), _aff_before_sleep))
+check("patting a sleeping pet only says it sleeps on",
+      pet2._balloon is not None and "睡得正香" in pet2._balloon._text)
+pet2.window.pet_asleep = True
+pet2._last_balloon_at = 0.0
+pet2._on_user_image(send_png)
+check("images are ignored while asleep",
+      _cap2 == [] and len(pet2.history.items) == _items_before)
+pet2._on_selftalk_tag("weather_sunny")
+check("self-talk is frozen while asleep", _cap2 == [])
+check("affection decay is paused while asleep", pet2.affection.paused() is True)
+
+_paused_aff = pet2.affection
+_paused_aff.set_paused(True)
+_fake_now = [1000.0]
+_paused_aff._mono_fn = lambda: _fake_now[0]
+_paused_aff._last_update = 0.0
+_val_before = _paused_aff.value()
+_fake_now[0] = 100000.0
+_paused_aff._on_tick()
+check("no affection decay while asleep", _paused_aff.value() == _val_before,
+      (_val_before, _paused_aff.value()))
+
+_cap2[:] = []
+pet2.sleep._until = 0          # 模拟睡够时间
+pet2.sleep.check()
+check("waking asks the AI for a just-woke line",
+      len(_cap2) == 1 and not pet2.sleep.is_asleep()
+      and "睡醒" in _cap2[0][0][-1]["content"],
+      _cap2[0][0][-1]["content"] if _cap2 else None)
+check("affection unpaused after waking", pet2.affection.paused() is False)
+pet2.history = _hist_real3
+pet2.affection = _aff_real3
+pet2.sleep = _sleep_real
+
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
 check("wclass cloudy", wclass(3, 5) == "cloudy")

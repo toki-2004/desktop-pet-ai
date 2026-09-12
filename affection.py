@@ -41,6 +41,7 @@ class AffectionSystem(QObject):
         self._tick.timeout.connect(self._on_tick)
         self._last_tier = None
         self._last_emit = {"high": 0.0, "mid": 0.0, "low": 0.0}
+        self._paused = False   # 桌宠睡着时暂停衰减：不降也不补
         self._load()
         self._tick.start(TICK_MS)
 
@@ -121,10 +122,22 @@ class AffectionSystem(QObject):
             self.valueChanged.emit(self._value)
 
     # ---------- 衰减 ----------
+    def set_paused(self, paused):
+        """睡着期间冻结好感变化（衰减不累计：醒来从当前时刻重新计时）。"""
+        self._paused = bool(paused)
+        self._last_update = self._mono_fn()
+        self._save()
+
+    def paused(self):
+        return self._paused
+
     def _on_tick(self):
         if not self.enabled():
             return
         now = self._mono_fn()
+        if self._paused:
+            self._last_update = now   # 睡觉不欠账：醒来从这一格重新算
+            return
         elapsed = now - self._last_update
         step = self._decay_seconds()
         if elapsed < step:

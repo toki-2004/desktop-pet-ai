@@ -762,6 +762,10 @@ class PetWindow(QWidget):
         鼠标单击（本地）与网页"摸头"按钮共用这一处，保证两边效果一致。"""
         if not self.config.get("pet_head_enabled", True):
             return False
+        if getattr(self, "pet_asleep", False):
+            # 睡着时不出互动动画，只让主程序回"睡得正香"
+            self.petHeadRequested.emit()
+            return True
         self._play_interact_once()
         self.petHeadRequested.emit()
         return True

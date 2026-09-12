@@ -30,6 +30,7 @@ from chat_history import ChatHistory, HistoryDialog
 from balance import BalanceMonitor
 from running_apps import audio_apps, media_track, running_apps
 import autostart
+import sleep
 import web2api
 import webchat
 
@@ -323,6 +324,8 @@ class DesktopPet:
             hist_path = os.path.join(tempfile.gettempdir(), "pet_smoke_history.json")
         self.history = ChatHistory(hist_path, self.config.get("chat_history_max", 200))
         self.affection = AffectionSystem(self.config)
+        self.sleep = sleep.SleepMonitor(self.config)
+        self._pending_sleep = ""   # 说了午安/晚安：等这条回复完再睡
         self.weather = WeatherMonitor(self.config)
         self.balance = BalanceMonitor(self.config)
         self._balloon = None
@@ -342,6 +345,7 @@ class DesktopPet:
         if not self.config.get("pet_interact_image") and os.path.exists(DEFAULT_INTERACT):
             self.config.set("pet_interact_image", DEFAULT_INTERACT)
         self.window.show()
+        self._apply_sleep_state()   # 睡了一半重启：接着睡；睡够了：补一句"刚醒"
         if not os.environ.get("PET_SMOKE"):
             self.weather.start()  # 冒烟模式不访问网络（天气拉取放后台线程，会拖慢退出）
             self.balance.start()  # 余额轮询（多平台账号，未绑定则显示"未绑定账号"）
@@ -444,6 +448,8 @@ class DesktopPet:
         return "\n".join(parts)
 
     def _ask_ai(self, messages, meta):
+        if self.sleep.is_asleep():
+            return   # 睡着了就不再让 AI 开口（自言自语/播报一并冻结）
         # 重启后 10 秒内不向后端发第一条请求：让"内置 AI 已就绪"等启动通知先
         # 弹出并显示完，避免它覆盖桌宠刚启动时主动说的第一句话。
         remain = (self._start_mono + self.STARTUP_AI_DELAY_S) - time.monotonic()
@@ -484,12 +490,63 @@ class DesktopPet:
               "content": "（主人刚刚单击摸了摸你的头，请自然地反应一句话，简短口语化。）"}],
             {"kind": "head"})
 
+    def _on_pet_head(self):
+        """摸头（鼠标单击 / 网页按钮）：睡着时只回一句"睡得正香"，好感也不涨。"""
+        if self.sleep.is_asleep():
+            self._show_balloon(sleep.SLEEP_TEXT)
+            return
+        self.talk.note_interaction()
+        self.affection.note_pet()
+        self._show_pet_head()
+
+    def _enter_sleep(self, kind):
+        """进入睡眠：冻结好感、关掉互动动画、不再自言自语。"""
+        until = self.sleep.put_to_sleep(kind)
+        self.window.pet_asleep = True
+        self.affection.set_paused(True)
+        petlog.log("sleep: entered %s until %s" % (
+            kind, time.strftime("%m-%d %H:%M", time.localtime(until))))
+
+    def _on_wake(self, kind):
+        """醒来：解冻好感，第一句话说"刚睡醒"的状态。"""
+        self.window.pet_asleep = False
+        self.affection.set_paused(False)
+        petlog.log("sleep: wake line for %s" % kind)
+        self._ask_ai([{"role": "user", "content": sleep.WAKE_PROMPTS.get(kind, "")}],
+                     {"kind": "wake"})
+
+    def _announce(self, text):
+        """高峰/空闲这类主动播报：睡着时不打扰。"""
+        if not self.sleep.is_asleep():
+            self._show_balloon(text, persistent=True)
+
+    def _apply_sleep_state(self):
+        """启动时对齐睡眠状态（睡了一半重启也要接着睡）。"""
+        if self.sleep.is_asleep():
+            self.window.pet_asleep = True
+            self.affection.set_paused(True)
+            petlog.log("sleep: still asleep at startup")
+            return
+        kind = self.sleep.take_pending_wake()
+        if kind:
+            # 关机期间睡够了：启动后补一句"刚醒"
+            QTimer.singleShot(4000, lambda: self._on_wake(kind))
+
     def _on_user_chat(self, text):
+        if self.sleep.is_asleep():
+            self._show_balloon(sleep.SLEEP_TEXT)   # 睡着时只回这一句，不入记录
+            return
+        kind = sleep.trigger_kind(text)
+        if kind:
+            self._pending_sleep = kind   # 这条回复完之后去睡
         self.history.append("user", text)
         self._ask_ai([{"role": "user", "content": text}], {"kind": "chat"})
 
     def _on_user_image(self, path):
         """发图片给 AI：文字提示 + 图片走同一条链路（内置服务会自动上传到网页版识图）。"""
+        if self.sleep.is_asleep():
+            self._show_balloon(sleep.SLEEP_TEXT)
+            return
         name = os.path.basename(path)
         # 存一份到 web_images/：这样手机网页上能直接把图渲染出来（只存文件名进历史）
         stored = webchat.store_image(path) if self.webchat is not None else ""
@@ -502,6 +559,10 @@ class DesktopPet:
     def _on_ai_reply(self, text, ok, meta):
         meta = meta or {}
         kind = meta.get("kind", "chat")
+        if self._pending_sleep and kind != "wake":
+            # 说完"晚安/午安"（或这条失败给的兜底）就睡——失败也睡，别让一句网络抖动毁掉整晚
+            pending, self._pending_sleep = self._pending_sleep, ""
+            self._enter_sleep(pending)
         if not ok:
             # 只有真断线（服务重连/换新对话）才重注入人设；单纯超时是 AI 还在
             # 读网页/思考，会话没断，重注入只会反复污染对话、让回复变刻板。
@@ -536,9 +597,7 @@ class DesktopPet:
         w.testNotifyRequested.connect(self._test_notify)
         w.quitRequested.connect(QApplication.instance().quit)
         w.autoStartRequested.connect(self._on_auto_start)
-        w.petHeadRequested.connect(self._show_pet_head)
-        w.petHeadRequested.connect(lambda: self.talk.note_interaction())
-        w.petHeadRequested.connect(lambda: self.affection.note_pet())
+        w.petHeadRequested.connect(self._on_pet_head)   # 摸头：AI 反应 + 互动 + 好感（睡着时被冻结）
         w.chatInputRequested.connect(self._on_user_chat)
         w.chatInputRequested.connect(lambda: self.talk.note_interaction())
         w.imageInputRequested.connect(self._on_user_image)
@@ -568,15 +627,16 @@ class DesktopPet:
         m.balanceUpdated.emit(0.0, "selftest")  # 冒烟：验证信号链路
 
         s = self.schedule
-        s.peakStarted.connect(lambda: self._show_balloon(
-            self.config.get("peak_balloon_text", "高峰时段开始啦……"), persistent=True))
-        s.idleStarted.connect(lambda: self._show_balloon(
-            self.config.get("idle_balloon_text", "空闲时段开始啦！"), persistent=True))
+        s.peakStarted.connect(lambda: self._announce(
+            self.config.get("peak_balloon_text", "高峰时段开始啦……")))
+        s.idleStarted.connect(lambda: self._announce(
+            self.config.get("idle_balloon_text", "空闲时段开始啦！")))
         from scheduler import is_peak
         w.status_label.set_state(is_peak())
         s.peakStarted.connect(lambda: w.status_label.set_state(True))
         s.idleStarted.connect(lambda: w.status_label.set_state(False))
         self.talk.request_talk.connect(self._on_selftalk_tag)
+        self.sleep.woke.connect(self._on_wake)
         self.weather.weatherChanged.connect(self.talk.set_weather)
         self.weather.weatherChanged.connect(lambda k: setattr(self, "_last_weather", k))
         self.weather.weatherError.connect(self._on_weather_error)

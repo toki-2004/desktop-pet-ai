@@ -65,6 +65,13 @@ zero-cost chatting with no API key at all.
 14. **App awareness**: each conversation includes the currently open app
     windows (foreground first) plus apps producing audio (background
     music/video counts), so the AI can tell what you're doing.
+15. **Sleep**: say "午安" (nap) or "晚安" (good night) and the pet answers, then
+    goes to sleep — 2 hours for a nap, 8 hours for the night; it wakes when that
+    timer ends or when the clock hits 14:30 / 08:30 (whichever comes first).
+    While asleep, talking to it / patting it / sending a photo only gets
+    "呼……呼……（桌宠似乎睡得正香）" (not saved to history), self-talk stops, and
+    affection neither rises nor decays; its first line after waking sounds like
+    someone who just got up.
 
 ## Screenshots
 
@@ -139,6 +146,9 @@ token); releases never ship an apk — keep your generated apk local.
   the log itself (tap to open the original). The `?k=…` in the URL is the
   access token (generated on first run, stored in `config.json`); set
   `webchat_enabled` to `false` to turn the page off.
+- **Put it to sleep**: just say "晚安" (good night) or "午安" (nap) — it answers, then
+  sleeps. While asleep any interaction only gets "呼……呼……". To wake it early, set
+  `sleep_until` to `0` in `config.json` and restart (or wait for the wake time).
 - **Head pat**: left-click the pet (animation + AI reaction); press-and-drag to
   move (position remembered automatically).
 - **Zoom**: hover over the pet and scroll the wheel.
