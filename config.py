@@ -54,7 +54,9 @@ DEFAULT_CONFIG = {
         "你会根据当前情境（时间、天气、好感度等）主动说话，也会回应主人的摸头和聊天。"
     ),
     "ai_context_n": 10,
-    "ai_timeout_s": 300,  # 读超时（秒）：内置免费 AI 读网页/思考常超过 1 分钟，别过早兜底
+    # 读超时（秒）：要比内置服务自己的等待上限（vendor requestTimeoutMs=300s）更长，
+    # 否则会在服务端给出明确原因前先判超时，只剩"短路了"这句含糊提示
+    "ai_timeout_s": 330,
     "ai_fallback_enabled": True,
     "ai_fallback_text": "唔……我现在有点短路了",
     "ai_web2api_max_messages": 20,  # 内置 DeepSeek 网页对话的消息上限（0=不限制）

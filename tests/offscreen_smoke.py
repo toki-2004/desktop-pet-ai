@@ -671,8 +671,20 @@ check("builtin retry after failure carries persona again",
 import config as config_mod  # noqa: E402
 
 check("default ai read timeout is generous",
-      float(config_mod.DEFAULT_CONFIG.get("ai_timeout_s", 0)) >= 120,
+      float(config_mod.DEFAULT_CONFIG.get("ai_timeout_s", 0)) >= 300,
       config_mod.DEFAULT_CONFIG.get("ai_timeout_s"))
+# 内置服务的等待上限必须 ≥5 分钟，且桌宠要比它更耐心：否则服务端还没给出明确
+# 原因（deepseek_timeout），桌宠就先超时，用户只看到"短路了"（2026-09-12 的 bug）
+with open(os.path.join(w2a.VENDOR_DIR, "config.json"), encoding="utf-8") as _vf:
+    _vendor_limits = (json.load(_vf).get("limits") or {})
+check("builtin service waits at least 5 minutes",
+      int(_vendor_limits.get("requestTimeoutMs", 0)) >= 300000,
+      _vendor_limits.get("requestTimeoutMs"))
+check("pet outlasts the builtin service timeout",
+      float(config_mod.DEFAULT_CONFIG.get("ai_timeout_s", 0)) * 1000
+      > int(_vendor_limits.get("requestTimeoutMs", 0)),
+      (config_mod.DEFAULT_CONFIG.get("ai_timeout_s"),
+       _vendor_limits.get("requestTimeoutMs")))
 _probe_kw = {}
 
 

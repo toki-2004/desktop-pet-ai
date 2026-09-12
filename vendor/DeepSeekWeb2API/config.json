@@ -19,7 +19,7 @@
     "tempDir": "tmp"
   },
   "limits": {
-    "requestTimeoutMs": 180000,
+    "requestTimeoutMs": 300000,
     "uploadTimeoutMs": 90000,
     "keepaliveMs": 3000,
     "imageLimit": 8,

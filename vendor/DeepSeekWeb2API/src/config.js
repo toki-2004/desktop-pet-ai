@@ -195,7 +195,8 @@ export const config = {
   tempDir: path.resolve(process.env.TEMP_DIR || resolveProjectPath(getValue(fileConfig, ['paths', 'tempDir'], undefined), 'tmp')),
   headless: boolConfig('HEADLESS', browserFileConfig.headless, false),
   loginMode: boolEnv('DEEPSEEK_LOGIN', false) || process.argv.includes('--login'),
-  requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', getValue(fileConfig, ['limits', 'requestTimeoutMs'], undefined), 180000),
+  // 5 分钟：网页版读网页/长思考经常超过 1-3 分钟，太早收手会误报失败
+  requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', getValue(fileConfig, ['limits', 'requestTimeoutMs'], undefined), 300000),
   uploadTimeoutMs: intEnv('UPLOAD_TIMEOUT_MS', getValue(fileConfig, ['limits', 'uploadTimeoutMs'], undefined), 90000),
   keepaliveMs: intEnv('KEEPALIVE_MS', getValue(fileConfig, ['limits', 'keepaliveMs'], undefined), 3000),
   imageLimit: intEnv('IMAGE_LIMIT', getValue(fileConfig, ['limits', 'imageLimit'], undefined), 8),

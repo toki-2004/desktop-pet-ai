@@ -20,6 +20,7 @@ tests/tmp/
 config.json.bak
 config.json.broken
 config.json.tmp
+config.json.before-*
 pet_debug.log
 chat_history.json
 chat_history.json.bak-*
