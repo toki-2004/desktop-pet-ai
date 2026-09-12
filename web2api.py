@@ -15,9 +15,12 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal
+
+import petlog
 
 if getattr(sys, "frozen", False):
     _BASE = os.path.dirname(sys.executable)
@@ -45,10 +48,64 @@ def is_bound():
 
 
 def clear_login_state():
-    """清空登录浏览器档案，保证 --login 弹出的是无登录态的全新浏览器。"""
+    """把旧登录浏览器档案改名备份，再让 --login 弹出无登录态的全新浏览器。
+
+    以前是直接 rmtree：一旦重新绑定，旧档案（含本地缓存/登录态）就永久没了，
+    而"重新绑定"本意只是换一次登录，不该销毁用户数据。现在只改名，可回滚。
+    返回备份目录路径（没得备份时为空串）。"""
     d = os.path.join(VENDOR_DIR, "data", "user-data")
-    if os.path.isdir(d):
-        shutil.rmtree(d, ignore_errors=True)
+    if not os.path.isdir(d):
+        return ""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    bak = "%s.bak-%s" % (d, stamp)
+    n = 1
+    while os.path.exists(bak):  # 同一秒内重复重新绑定也别撞名
+        n += 1
+        bak = "%s.bak-%s-%d" % (d, stamp, n)
+    try:
+        os.rename(d, bak)
+    except OSError as e:
+        # 改名失败（被占用等）也绝不删：宁可这次登录页带着旧登录态（用户仍可手动
+        # 退出登录），也不给用户造成不可恢复的数据损失。
+        petlog.log("login state backup failed: %s" % e)
+        return ""
+    _prune_login_backups(d)
+    return bak
+
+
+def _prune_login_backups(profile_dir, keep=3):
+    """只保留最近 keep 份备份（每份约 30MB，避免无限堆积）。
+
+    ponytail: 固定保留 3 份够用；要留更多改 keep，或把备份挪到别的盘。"""
+    parent = os.path.dirname(profile_dir)
+    prefix = os.path.basename(profile_dir) + ".bak-"
+    try:
+        baks = sorted(n for n in os.listdir(parent) if n.startswith(prefix))
+    except OSError:
+        return
+    for name in baks[:-keep] if keep > 0 else baks:
+        shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+
+
+def session_status(check=False, timeout_s=3):
+    """内置 AI 是否真的进了对话界面（None=服务没给出结果/查不了）。
+
+    check=True 让服务端同步查一次（会开/导航浏览器，几十秒级别），
+    check=False 只读它最近一次的自检结果（服务刚起、还没查完时是 None）。"""
+    url = BASE_URL + ("/health?check=1" if check else "/health")
+    try:
+        r = requests.get(url, timeout=timeout_s)
+        if r.status_code != 200:
+            return None
+        value = r.json().get("loggedIn")
+        return value if isinstance(value, bool) else None
+    except Exception:
+        return None
+
+
+def wait_session_status(timeout_s=60):
+    """起服务/重连后确认一次登录态；超时或服务不支持则返回 None（视为未知，按可用处理）。"""
+    return session_status(check=True, timeout_s=timeout_s)
 
 
 def service_alive():
@@ -103,7 +160,9 @@ def stop_service():
 def run_login_and_start():
     """可见控制台跑 --login（弹全新无登录态浏览器），用户登录完关掉控制台后自动拉起服务。"""
     stop_service()
-    clear_login_state()
+    bak = clear_login_state()
+    if bak:
+        petlog.log("login state backed up to %s" % bak)
     login = _run_node(["--login"], new_console=True)
     login.wait()
     return start_service()
@@ -166,20 +225,35 @@ class Manager(QObject):
 
     status = pyqtSignal(bool, str)  # (ok, message)
 
+    LOGIN_LOST_MSG = "内置 AI 的 DeepSeek 登录态已失效，请在设置页点「重新绑定」重新登录"
+
     def ensure_async(self):
         threading.Thread(target=self._ensure, daemon=True).start()
 
     def _ensure(self):
         if service_alive():
-            self.status.emit(True, "")
+            # 复用手头这个服务（桌宠重启时常见）：它可能早就掉了登录态，同步查一次
+            if wait_session_status() is False:
+                self.status.emit(False, self.LOGIN_LOST_MSG)
+            else:
+                self.status.emit(True, "")
             return
         if not is_bound():
             self.status.emit(False, "login")
             ok = run_login_and_start()
-            self.status.emit(ok, "内置 AI 已就绪" if ok else "内置 AI 启动失败，请看设置页重新绑定")
+            self.status.emit(*self._started_result(ok))
             return
         ok = start_service()
-        self.status.emit(ok, "内置 AI 已就绪" if ok else "内置 AI 启动失败，请看设置页重新绑定")
+        self.status.emit(*self._started_result(ok))
+
+    def _started_result(self, ok):
+        if not ok:
+            return False, "内置 AI 启动失败，请看设置页重新绑定"
+        logged_in = wait_session_status()
+        if logged_in is False:
+            # 服务活着但进不去对话界面（登录态过期）——早点说，别让用户等到聊天失败
+            return False, self.LOGIN_LOST_MSG
+        return True, "内置 AI 已就绪"
 
     def rebind_async(self):
         threading.Thread(target=self._rebind, daemon=True).start()
@@ -187,5 +261,9 @@ class Manager(QObject):
     def _rebind(self):
         kill_port_listener()
         ok = run_login_and_start()
-        self.status.emit(ok, "重新绑定完成，内置 AI 已就绪" if ok
-                         else "重新绑定失败，请重试或手动启动 vendor 服务")
+        if not ok:
+            self.status.emit(False, "重新绑定失败，请重试或手动启动 vendor 服务")
+        elif wait_session_status() is False:
+            self.status.emit(False, "重新绑定后仍进不去对话界面，请重试或在弹出的浏览器里完成登录")
+        else:
+            self.status.emit(True, "重新绑定完成，内置 AI 已就绪（旧登录档案已备份，聊天记录未受影响）")

@@ -110,6 +110,17 @@ class AIClient(QObject):
             # 写进对话并在继续生成），meta 带标记供上层跳过人设重注入。
             petlog.log("ai request timed out after %ss: %s" % (read_timeout, e))
             self.reply.emit("", False, dict(meta or {}, timeout=True))
+        except requests.HTTPError as e:
+            # 服务端给了明确错误码（如内置 AI 登录态失效 login_required）时带上，
+            # 让上层给出"去重新绑定"这类可操作提示，而不是笼统的兜底文本
+            code = ""
+            try:
+                code = str(((e.response.json() or {}).get("error") or {}).get("code") or "")
+            except Exception:
+                code = ""
+            petlog.log("ai request failed: HTTP %s %s"
+                       % (getattr(e.response, "status_code", "?"), code))
+            self.reply.emit("", False, dict(meta or {}, error_code=code))
         except Exception as e:
             petlog.log("ai request failed: %s" % e)
             self.reply.emit("", False, meta)

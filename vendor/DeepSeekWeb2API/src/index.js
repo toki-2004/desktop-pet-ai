@@ -38,6 +38,11 @@ if (config.loginMode) {
       auth: config.apiKey ? 'enabled' : 'disabled'
     });
   });
+  // 起服务就顺手确认一次登录态（后台，不挡端口就绪）：登录失效要早发现，
+  // 不要让用户聊到一半才发现进不去对话界面；结果从 /health 的 loggedIn 读。
+  client.checkSession()
+    .then(ok => logger.info('session check finished', { loggedIn: ok }))
+    .catch(err => logger.warn('session check error', { error: err.message }));
 }
 
 async function shutdown() {
@@ -51,7 +56,11 @@ async function handleRequest(req, res) {
 
   try {
     if (req.method === 'GET' && parsedUrl.pathname === '/health') {
-      json(res, 200, { ok: true, queue: mutex.size });
+      // ?check=1：同步做一次"能不能进对话界面"的检查（并发时复用同一次检查）
+      if (parsedUrl.searchParams.get('check') === '1') {
+        await client.checkSession().catch(() => {});
+      }
+      json(res, 200, { ok: true, queue: mutex.size, loggedIn: client.loggedIn });
       return;
     }
 

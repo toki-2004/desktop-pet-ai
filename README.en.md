@@ -113,7 +113,19 @@ cloud preset — see "AI settings".)
 
 ### Login expired?
 
-Click "Rebind" on the settings AI tab — the DeepSeek login browser pops up again.
+On startup the pet checks whether it can actually reach the chat UI (the bundled
+service self-checks and reports it on `/health` as `loggedIn`), so an expired
+session is surfaced right away instead of showing up as a mysteriously failed
+chat; a failed chat also tells you it is a login problem.
+
+Click "Rebind" on the settings AI tab: the old browser login profile is renamed
+to a backup (`vendor/DeepSeekWeb2API/data/user-data.bak-<timestamp>`, newest 3
+kept) before a fresh DeepSeek login browser opens, so you can re-login or switch
+accounts.
+
+Rebinding never touches the conversations in your DeepSeek account (they live on
+the server) nor the local `chat_history.json` — it only swaps the local browser
+profile, and it backs that up instead of deleting it.
 
 ## Requirements
 
@@ -138,7 +150,7 @@ backup). Common keys:
 ## Development & testing
 
 ```bash
-python tests/offscreen_smoke.py   # offscreen self-check (154 checks)
+python tests/offscreen_smoke.py   # offscreen self-check (170 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
 ```
 

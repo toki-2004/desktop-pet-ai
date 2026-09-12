@@ -439,6 +439,12 @@ class DesktopPet:
             # 读网页/思考，会话没断，重注入只会反复污染对话、让回复变刻板。
             if not meta.get("timeout"):
                 self._convo_primed = False
+            if meta.get("error_code") in ("login_required", "deepseek_not_logged_in"):
+                # 内置免费 AI 登录态失效：给可操作的提示，别只说"短路了"
+                self._show_balloon(
+                    "内置 AI 的 DeepSeek 登录态失效了，去「设置 → AI」点「重新绑定」重新登录一下吧；"
+                    "旧登录档案会备份，聊天记录不受影响。")
+                return
             # 兜底文本只作为连接波动提示弹气泡，不计入聊天记录
             if bool(self.config.get("ai_fallback_enabled", True)):
                 self._show_balloon(

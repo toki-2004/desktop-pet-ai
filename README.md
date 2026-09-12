@@ -85,8 +85,16 @@ python main.py
 
 ### 登录失效了怎么办？
 
-设置 → AI 页点"重新绑定"：会先清空旧登录态，再弹出全新的 DeepSeek 登录页，
-重新登录当前账号即可续期，也可以直接登录另一个账号完成切换。
+桌宠启动时会自动确认一次"能不能进到对话界面"（内置服务起服务后自检，结果看
+`/health` 的 `loggedIn`），登录态失效会直接弹提示，不用等到聊天失败才发现；
+聊天失败时也会明确告诉你是登录态问题，而不是笼统的"短路了"。
+
+设置 → AI 页点"重新绑定"：先把旧登录档案改名备份
+（`vendor/DeepSeekWeb2API/data/user-data.bak-时间戳`，只保留最近 3 份），
+再弹出全新的 DeepSeek 登录页，重新登录当前账号即可续期，也可以直接登录另一个账号。
+
+重新绑定**不会**动你 DeepSeek 账号里的对话（那些存在服务端），也不会动桌宠本地的
+`chat_history.json`；它只换本地浏览器登录档案，而且是备份而非删除。
 
 ## 环境要求
 
@@ -109,7 +117,7 @@ python main.py
 ## 开发与测试
 
 ```bash
-python tests/offscreen_smoke.py   # 离屏自检（154 项）
+python tests/offscreen_smoke.py   # 离屏自检（170 项）
 PET_SMOKE=1 python main.py        # 冒烟，exit=0 通过
 ```
 

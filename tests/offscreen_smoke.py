@@ -729,9 +729,10 @@ _cap2[:] = []
 pet2._ask_ai([{"role": "user", "content": "开场白"}], {"kind": "chat"})
 check("startup first request deferred until delay", _cap2 == [], _cap2)
 wait(600)
+_deferred = [c for c in _cap2 if c[0][-1] == {"role": "user", "content": "开场白"}]
 check("deferred first request sent after delay",
-      len(_cap2) == 1 and _cap2[0][0][-1] == {"role": "user", "content": "开场白"}
-      and "小鲸桌宠" not in _cap2[0][1],  # 人设由独立用例覆盖，这里只验证延迟发送
+      len(_deferred) == 1
+      and "小鲸桌宠" not in _deferred[0][1],  # 人设由独立用例覆盖，这里只验证延迟发送
       _cap2)
 pet2.STARTUP_AI_DELAY_S = 10.0
 pet2._start_mono = _time.monotonic() - 30.0
@@ -840,6 +841,11 @@ import base64 as _b64  # noqa: E402
 import tempfile as _tempfile  # noqa: E402
 import pet_window as pet_window_mod  # noqa: E402
 
+# 本节所有发送都会走 _on_user_image 写历史：先把历史换成 tmp 文件，
+# 绝不能碰用户真实的 chat_history.json（之前就是这里污染了真记录）
+_hist_real = pet2.history
+pet2.history = ChatHistory(os.path.join(tmp, "hist_img.json"), 20)
+
 send_png = os.path.join(tmp, "send.png")
 send_img = QImage(40, 40, QImage.Format_ARGB32)
 send_img.fill(0xFF22AA55)
@@ -906,8 +912,6 @@ check("ctrl+V text still pastes text",
       (pet2.window.chat_input.text(), _img_paths))
 pet2.window.chat_input.clear()
 
-_hist_saved = pet2.history
-pet2.history = ChatHistory(os.path.join(tmp, "hist_img.json"), 20)
 _preset_img_saved = pet2.config.get("ai_preset", "")
 pet2.config.set("ai_preset", "deepseek_web2api")
 pet2._convo_primed = True  # 内置服务已在对话中：本条不带历史回放
@@ -922,12 +926,132 @@ check("user image reaches the AI client with the file path",
 check("sending an image floats a success notice",
       _new_floats == ["发送图片成功"], _new_floats)
 check("user image recorded in chat history",
-      len(pet2.history.items) == 1 and "图片" in pet2.history.items[0]["content"]
-      and pet2.history.items[0]["role"] == "user",
+      bool(pet2.history.items) and "图片" in pet2.history.items[-1]["content"]
+      and pet2.history.items[-1]["role"] == "user",
       pet2.history.items)
 pet2.ai = _ai_off
-pet2.history = _hist_saved
+pet2.history = _hist_real
 pet2.config.set("ai_preset", _preset_img_saved)
+
+# 11.7 内置 AI：登录态检测 + 重新绑定只备份不删除
+import web2api as w2a  # noqa: E402
+
+fake_vendor = os.path.join(tmp, "fake_vendor")
+profile_dir = os.path.join(fake_vendor, "data", "user-data")
+if os.path.isdir(fake_vendor):
+    import shutil as _shutil
+    _shutil.rmtree(fake_vendor)
+os.makedirs(os.path.join(profile_dir, "Default"))
+with open(os.path.join(profile_dir, "Default", "Cookies"), "w", encoding="utf-8") as _f:
+    _f.write("pretend login cookie")
+_vendor_saved = w2a.VENDOR_DIR
+w2a.VENDOR_DIR = fake_vendor
+check("bound login state detected", w2a.is_bound())
+_bak1 = w2a.clear_login_state()
+check("rebind backs up the old login profile instead of deleting it",
+      bool(_bak1) and os.path.isdir(_bak1)
+      and os.path.exists(os.path.join(_bak1, "Default", "Cookies")),
+      _bak1)
+check("rebind leaves no active profile (login browser starts logged out)",
+      not w2a.is_bound())
+_bak2 = w2a.clear_login_state()
+check("a missing profile has nothing to back up", _bak2 == "", _bak2)
+for _ in range(4):
+    os.makedirs(os.path.join(profile_dir, "Default"), exist_ok=True)
+    with open(os.path.join(profile_dir, "Default", "Cookies"), "w", encoding="utf-8") as _f:
+        _f.write("again")
+    w2a.clear_login_state()
+_baks = sorted(n for n in os.listdir(os.path.join(fake_vendor, "data"))
+               if n.startswith("user-data.bak-"))
+check("rebinding repeatedly keeps the newest 3 backups only", len(_baks) == 3, _baks)
+check("kept backups are the newest ones",
+      all(os.path.exists(os.path.join(fake_vendor, "data", n, "Default", "Cookies"))
+          for n in _baks), _baks)
+w2a.VENDOR_DIR = _vendor_saved
+
+
+class _HealthResp:
+    def __init__(self, payload, code=200):
+        self._payload = payload
+        self.status_code = code
+
+    def json(self):
+        return self._payload
+
+
+_orig_w2a_get = w2a.requests.get
+w2a.requests.get = lambda *a, **k: _HealthResp({"ok": True, "loggedIn": False})
+check("session status reports expired login", w2a.session_status() is False)
+w2a.requests.get = lambda *a, **k: _HealthResp({"ok": True, "loggedIn": True})
+check("session status reports live login", w2a.session_status() is True)
+w2a.requests.get = lambda *a, **k: _HealthResp({"ok": True})
+check("session status unknown stays None", w2a.session_status() is None)
+w2a.requests.get = lambda *a, **k: (_ for _ in ()).throw(OSError())
+check("session status survives service errors", w2a.session_status() is None)
+w2a.requests.get = _orig_w2a_get
+
+_orig_service_alive = w2a.service_alive
+_orig_is_bound = w2a.is_bound
+_orig_start_service = w2a.start_service
+_orig_wait_session = w2a.wait_session_status
+w2a.service_alive = lambda: False
+w2a.is_bound = lambda: True
+w2a.start_service = lambda *a, **k: True
+_mgr = w2a.Manager()
+_mgr_msgs = []
+_mgr.status.connect(lambda ok, msg: _mgr_msgs.append((ok, msg)))
+w2a.wait_session_status = lambda *a, **k: False
+_mgr._ensure()
+check("startup check tells the user to rebind when login is gone",
+      _mgr_msgs and _mgr_msgs[-1][0] is False and "登录态" in _mgr_msgs[-1][1],
+      _mgr_msgs)
+_mgr_msgs[:] = []
+w2a.wait_session_status = lambda *a, **k: None
+_mgr._ensure()
+check("unknown session state still reports ready",
+      _mgr_msgs[-1] == (True, "内置 AI 已就绪"), _mgr_msgs)
+_mgr_msgs[:] = []
+w2a.service_alive = lambda: True
+w2a.wait_session_status = lambda *a, **k: False
+_mgr._ensure()
+check("reusing a service whose login died also warns",
+      _mgr_msgs and _mgr_msgs[-1][0] is False and "登录态" in _mgr_msgs[-1][1],
+      _mgr_msgs)
+_mgr_msgs[:] = []
+w2a.wait_session_status = lambda *a, **k: True
+_mgr._ensure()
+check("reusing a healthy service stays quiet", _mgr_msgs[-1] == (True, ""), _mgr_msgs)
+w2a.service_alive = _orig_service_alive
+w2a.is_bound = _orig_is_bound
+w2a.start_service = _orig_start_service
+w2a.wait_session_status = _orig_wait_session
+
+
+class _ErrorResp:
+    status_code = 401
+
+    def raise_for_status(self):
+        raise ai_mod.requests.HTTPError(response=self)
+
+    def json(self):
+        return {"error": {"message": "login required", "code": "login_required"}}
+
+
+ai_mod.requests.post = lambda *a, **k: _ErrorResp()
+_err_ai = ai_mod.AIClient(pet2.config)
+_err_got = []
+_err_ai.reply.connect(lambda text, ok, meta: _err_got.append((ok, meta)))
+_err_ai._worker([{"role": "user", "content": "x"}], {"kind": "chat"})
+check("login failure surfaces its error code to the caller",
+      _err_got and _err_got[-1][0] is False
+      and _err_got[-1][1].get("error_code") == "login_required", _err_got)
+ai_mod.requests.post = _orig_post
+pet2._last_balloon_at = 0.0
+pet2._on_ai_reply("", False, {"kind": "chat", "error_code": "login_required"})
+app.processEvents()
+check("login failure balloon points at the rebind button",
+      pet2._balloon is not None and "重新绑定" in pet2._balloon._text,
+      pet2._balloon._text if pet2._balloon else None)
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")

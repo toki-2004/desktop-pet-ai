@@ -43,6 +43,7 @@ export class DeepSeekClient {
     this.cdp = null;
     this.messagesInConversation = 0;  // 当前对话里本次进程已发的消息数
     this.currentConversationId = null;  // 本次进程自己创建的对话 id（绝不进入其他对话）
+    this.loggedIn = null;  // null=还没查过；true/false=最近一次进对话界面的结果
   }
 
   async start() {
@@ -114,6 +115,8 @@ export class DeepSeekClient {
         if (m) this.currentConversationId = m[1];
         return result;
       } catch (err) {
+        // 登录态没进对话界面：直接失败，别当"会话失效"重试（重试同样进不去，白等一轮）
+        if (err.code === 'login_required') throw err;
         // 会话在网页端被用户删掉等失效场景：自动开新对话重试一次
         if (attempt === 0 && this._conversationLooksGone(responseState)) {
           logger.warn('conversation invalid, retrying in a new conversation', { error: err.message });
@@ -166,16 +169,71 @@ export class DeepSeekClient {
 
   async waitForComposer() {
     const page = this.page;
+    // 登录态失效时页面会停在登录界面（没有输入框），必须快速失败并给出明确信号，
+    // 否则发送流程会一直等到 requestTimeoutMs，用户侧表现为"卡住不动"。
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      if (await page.locator(INPUT_SELECTOR).first().isVisible().catch(() => false)) {
+        this.loggedIn = true;
+        return;
+      }
+      if (await this.loginPageVisible()) {
+        this.loggedIn = false;
+        throw new ApiError(
+          'DeepSeek 登录态已失效：页面停在登录界面，请在设置页点"重新绑定"重新登录。',
+          401,
+          'login_required',
+          'authentication_error'
+        );
+      }
+      await delay(500);
+    }
+    this.loggedIn = false;
+    const url = page.url();
+    throw new ApiError(
+      `DeepSeek composer was not found. The account may not be logged in. Run npm run login first. Current URL: ${url}`,
+      401,
+      'deepseek_not_logged_in',
+      'authentication_error'
+    );
+  }
+
+  async loginPageVisible() {
+    const url = this.page.url();
+    if (/sign[_-]?in|log[_-]?in/i.test(url)) return true;
+    return this.page.evaluate(() => {
+      if (document.querySelector('textarea, [contenteditable="true"]')) return false;
+      const hasPassword = document.querySelectorAll('input[type="password"]').length > 0;
+      const text = (document.body?.innerText || '').slice(0, 1000);
+      return hasPassword || /(登录|登入|Log ?in|Sign ?in)/i.test(text);
+    }).catch(() => false);
+  }
+
+  /* 启动/重连后先确认能进入对话界面（只导航+等输入框，不发消息、不新建对话）。 */
+  async checkSession() {
+    if (!this.sessionCheck) {
+      this.sessionCheck = this._checkSession()
+        .finally(() => { this.sessionCheck = null; });
+    }
+    return this.sessionCheck;  // 并发调用共用同一次检查
+  }
+
+  async _checkSession() {
+    await this.ensureStarted();
     try {
-      await page.locator(INPUT_SELECTOR).first().waitFor({ state: 'visible', timeout: 45000 });
-    } catch {
-      const url = page.url();
-      throw new ApiError(
-        `DeepSeek composer was not found. The account may not be logged in. Run npm run login first. Current URL: ${url}`,
-        401,
-        'deepseek_not_logged_in',
-        'authentication_error'
-      );
+      // 已经停在对话界面（含正在复用的那段对话）就地确认，不导航：
+      // 导航会打断正在进行的网页对话，让下一条消息另开新对话。
+      if (await this.page.locator(INPUT_SELECTOR).first().isVisible().catch(() => false)) {
+        this.loggedIn = true;
+        return true;
+      }
+      await this.page.goto(this.config.targetUrl, { waitUntil: 'domcontentloaded' });
+      await this.waitForComposer();
+      return true;
+    } catch (err) {
+      this.loggedIn = false;
+      logger.warn('session check failed', { error: err.message, code: err.code || '' });
+      return false;
     }
   }
 
