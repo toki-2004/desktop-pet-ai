@@ -1133,6 +1133,12 @@ check("webchat serves the page with pat + live refresh",
       "桌宠聊天" in _page and "/api/chat" in _page and "/api/pat" in _page
       and "setInterval" in _page)
 wc.stop()
+_closed = False
+try:
+    urllib.request.urlopen(_wc_base + "/api/history?k=tok123", timeout=3).read()
+except Exception:
+    _closed = True
+check("webchat stops with the pet (port released)", _closed, _closed)
 
 # 网页发来的消息必须和"在输入框回车"完全一样：进历史 + 触发 AI 请求
 _pet_wc = webchat_mod.WebChat(pet2.history, port=0, token="", bind="127.0.0.1")
@@ -1152,10 +1158,11 @@ _cap2[:] = []
 _code, _body = _http("http://127.0.0.1:%d/api/chat" % _pet_wc.port,
                      data=json.dumps({"text": "网页消息"}).encode("utf-8"))
 app.processEvents()
+_web_msgs = [c for c in _cap2 if c[0][-1]["content"] == "网页消息"]
 check("web message reaches the pet like typing does",
       _code == 200 and pet2.history.items
       and pet2.history.items[-1]["content"] == "网页消息"
-      and _cap2 and _cap2[-1][0][-1]["content"] == "网页消息",
+      and _web_msgs,   # 过滤掉同一时刻可能插进来的自言自语请求
       (pet2.history.items, _cap2))
 
 # 网页"摸头"按钮必须等于用鼠标单击桌宠：好感上升 + 触发摸头 AI 反应
@@ -1164,12 +1171,12 @@ _aff_before = pet2.affection.value()
 _cap2[:] = []
 _code, _body = _http("http://127.0.0.1:%d/api/pat" % _pet_wc.port, data=b"{}")
 app.processEvents()
+_pat_msgs = [c for c in _cap2 if "摸了摸你的头" in c[0][-1]["content"]]
 check("web pat raises affection like clicking the pet",
       _code == 200 and pet2.affection.value() > _aff_before,
       (_aff_before, pet2.affection.value()))
 check("web pat triggers the pet's head-pat reaction",
-      _cap2 and "摸了摸你的头" in _cap2[-1][0][-1]["content"],
-      _cap2[-1][0][-1]["content"] if _cap2 else None)
+      bool(_pat_msgs), [c[0][-1]["content"][:30] for c in _cap2])
 _code, _body = _http("http://127.0.0.1:%d/api/state" % _pet_wc.port)
 check("webchat state reports affection and tier",
       _code == 200 and _body["affection"] == pet2.affection.value()
