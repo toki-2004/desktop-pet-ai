@@ -5,6 +5,7 @@ import os
 import random
 import re
 import shutil
+import tempfile
 import threading
 import time
 import sys
@@ -316,9 +317,11 @@ class DesktopPet:
         self.schedule = ScheduleMonitor()
         self.talk = SelfTalkMonitor(self.config)
         self.ai = AIClient(self.config)
-        self.history = ChatHistory(
-            os.path.join(PROJECT_DIR, "chat_history.json"),
-            self.config.get("chat_history_max", 200))
+        # 冒烟跑用临时记录：别和正在用的桌宠抢同一个 chat_history.json
+        hist_path = os.path.join(PROJECT_DIR, "chat_history.json")
+        if os.environ.get("PET_SMOKE"):
+            hist_path = os.path.join(tempfile.gettempdir(), "pet_smoke_history.json")
+        self.history = ChatHistory(hist_path, self.config.get("chat_history_max", 200))
         self.affection = AffectionSystem(self.config)
         self.weather = WeatherMonitor(self.config)
         self.balance = BalanceMonitor(self.config)

@@ -11,6 +11,8 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPlainTextEdit, QMessageBox
 from PyQt5.QtGui import QTextCursor
 
+import petlog
+
 
 if sys.platform == "win32":
     class _MSG(ctypes.Structure):
@@ -35,20 +37,57 @@ class ChatHistory(QObject):
         self.load()
 
     def load(self):
-        try:
-            with open(self.path, encoding="utf-8") as f:
-                data = json.load(f)
-            self.items = data.get("messages", []) if isinstance(data, dict) else []
-        except Exception:
+        """读记录。读不成（写一半/被占用/坏档）时保留现场再开空表，
+        绝不静默当成"没有记录"——否则下一次 save 就把老记录永久覆盖了。"""
+        data = None
+        for attempt in range(3):
+            try:
+                with open(self.path, encoding="utf-8") as f:
+                    data = json.load(f)
+                break
+            except FileNotFoundError:
+                self.items = []
+                return
+            except Exception:
+                if attempt < 2:
+                    time.sleep(0.3)
+        if data is None:
+            try:
+                if os.path.exists(self.path):
+                    os.replace(self.path, "%s.broken-%s" % (
+                        self.path, time.strftime("%Y%m%d-%H%M%S")))
+                    petlog.log("chat history unreadable, kept as .broken-*")
+            except OSError:
+                pass
             self.items = []
+            return
+        self.items = data.get("messages", []) if isinstance(data, dict) else []
 
     def save(self):
+        """原子写：先写 .tmp 再 os.replace，读者不会读到"截断了一半"的文件。
+        （旧写法是 open(w) 直接截断，别的实例正好在这时读就会拿到空/半截数据，
+        它的下一次保存便把整份记录清空——今天两次"记录莫名消失"就是这个。）"""
+        if not self.items:
+            try:
+                if os.path.exists(self.path) and os.path.getsize(self.path) > 10:
+                    petlog.log("skip saving empty history over a non-empty file")
+                    return
+            except OSError:
+                pass
+        tmp = self.path + ".tmp"
         try:
-            with open(self.path, "w", encoding="utf-8") as f:
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump({"messages": self.items[-self.max_n:]},
                           f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.path)
+        except Exception as e:
+            petlog.log("chat history save failed: %s" % e)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def append(self, role, content, kind="chat", image=""):
         self.rev += 1

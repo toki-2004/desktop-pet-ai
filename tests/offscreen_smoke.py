@@ -1288,6 +1288,38 @@ try:
 finally:
     QMenu.exec_ = _orig_menu_exec
 
+# 11.95 聊天记录落盘安全：原子写 + 坏档留证 + 不拿空表覆盖非空文件
+_hist_path = os.path.join(tmp, "hist_safe.json")
+for _stale in (".tmp",):
+    if os.path.exists(_hist_path + _stale):
+        os.remove(_hist_path + _stale)
+for _name in os.listdir(tmp):        # 上一轮留下的坏档现场，先清掉再断言
+    if _name.startswith("hist_safe.json.broken-"):
+        os.remove(os.path.join(tmp, _name))
+if os.path.exists(_hist_path):
+    os.remove(_hist_path)
+hist_safe = ChatHistory(_hist_path, 50)
+hist_safe.append("user", "第一条")
+hist_safe.append("assistant", "第二条")
+check("history save leaves no half-written temp file",
+      not os.path.exists(_hist_path + ".tmp")
+      and len(json.load(open(_hist_path, encoding="utf-8"))["messages"]) == 2)
+
+hist_safe.items = []          # 模拟"load 失败后items为空"
+hist_safe.save()
+check("empty history never overwrites a non-empty file",
+      len(json.load(open(_hist_path, encoding="utf-8"))["messages"]) == 2)
+
+with open(_hist_path, "w", encoding="utf-8") as _f:
+    _f.write('{"messages": [{"role": "us')     # 半截 JSON：模拟读到写了一半的档
+_hist_broken = ChatHistory(_hist_path, 50)
+_broken_files = [n for n in os.listdir(tmp) if n.startswith("hist_safe.json.broken-")]
+check("unreadable history is kept aside, not silently dropped",
+      _hist_broken.items == [] and len(_broken_files) == 1
+      and open(os.path.join(tmp, _broken_files[0]), encoding="utf-8").read()
+      == '{"messages": [{"role": "us',
+      _broken_files)
+
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
 check("wclass cloudy", wclass(3, 5) == "cloudy")

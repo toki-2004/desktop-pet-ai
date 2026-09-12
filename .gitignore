@@ -24,6 +24,8 @@ config.json.before-*
 pet_debug.log
 chat_history.json
 chat_history.json.bak-*
+chat_history.json.tmp
+chat_history.json.broken-*
 # 网页要回看的图片副本（发出去的图会存一份）
 web_images/
 
