@@ -76,6 +76,22 @@ python main.py
 
 （源码运行同样需要内置 AI 的本地 vendor 包，或改用云端预设，见"AI 设置"。）
 
+### 手机 App（把聊天记录网页打包成 APK）
+
+聊天记录网页可以直接装进手机，出门在外也能和桌宠聊天：
+
+1. 右键桌面上的桌宠 →「**复制聊天记录网页地址**」（地址里带着访问口令）。
+2. 双击 `tools\apk\build_apk.cmd`（脚本默认直接读剪贴板；也可
+   `.\build_apk.ps1 -Url "http://…/?k=…" -Label "地址1"`）。
+3. 当前目录会生成 `desktop-pet-chat.apk`，装到手机（Android 7+）后点一下按钮，
+   就能看聊天记录、发消息、发图、摸头。
+
+环境要求（JDK 17 / Gradle 8.x / Android SDK 34）、全部参数与常见坑（明文 http、
+自签名证书、WebView 相册选择）见 [tools/apk/README.md](tools/apk/README.md)。
+
+说明：仓库里只放**打包工具与工程模板**（不含任何地址或口令），发布页也不提供 apk 下载；
+生成的 apk 请留在本地。
+
 ### 常用操作
 
 - **聊天**：桌宠下方输入框回车发送。

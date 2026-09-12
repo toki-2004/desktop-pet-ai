@@ -102,6 +102,23 @@ python main.py
 (From source you also need the local vendor bundle for the built-in AI, or use a
 cloud preset — see "AI settings".)
 
+### Phone app (pack the chat page into an APK)
+
+The chat page can live on your phone, so you can talk to the pet while away:
+
+1. Right-click the desktop pet → **"Copy chat page address"** (the URL carries the token).
+2. Run `tools\apk\build_apk.cmd` (double-click; it reads the clipboard by default) — or
+   `.\build_apk.ps1 -Url "http://…/?k=…" -Label "Address 1"`.
+3. `desktop-pet-chat.apk` appears in the current folder. Install it (Android 7+) and one
+   button gives you the history, chatting, photos and head pats.
+
+Requirements (JDK 17 / Gradle 8.x / Android SDK 34), all parameters and the usual traps
+(cleartext http, self-signed certificates, WebView photo picker) are in
+[tools/apk/README.en.md](tools/apk/README.en.md).
+
+Note: only the **builder and project template** live in this repository (no address and no
+token); releases never ship an apk — keep your generated apk local.
+
 ### Common actions
 
 - **Chat**: press Enter in the input box below the pet.
