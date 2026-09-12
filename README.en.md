@@ -20,6 +20,10 @@ zero-cost chatting with no API key at all.
   endpoint; presets auto-fetch the platform's model list.
 - **It remembers**: an affection system plus chat-history context means the AI
   knows what you've talked about.
+- **It can see**: drop an image onto the pet, paste a screenshot with Ctrl+V
+  (Win+Shift+S works straight away), or use right-click → "Send image…" and it
+  looks at the picture and says something. The built-in free AI uses DeepSeek
+  web image recognition, so it stays free.
 - **It knows what you're doing**: current open apps plus apps currently playing
   audio (background music counts) are injected into the AI context, so it can
   tell coding, gaming or video-watching apart and keep the chat on topic.
@@ -33,21 +37,23 @@ zero-cost chatting with no API key at all.
    AI reaction.
 4. **Affection system**: petting raises affection, idleness decays it; tiers
    shape the AI's tone, with an always-visible badge.
-5. **Work-status awareness**: after binding a balance account, work state
+5. **Image chat**: drop an image / paste a screenshot / right-click "Send image…";
+   the AI looks at it and answers, and the exchange is saved to history.
+6. **Work-status awareness**: after binding a balance account, work state
    (working / idle / topped up) is derived from balance changes and injected
    into the AI prompt; the AI speaks on state changes.
-6. **Balance query**: multi-platform accounts (DeepSeek / Kimi / SiliconFlow),
+7. **Balance query**: multi-platform accounts (DeepSeek / Kimi / SiliconFlow),
    with the balance label always visible at the pet's top-left.
-7. **Context label group**: affection / period / work-status labels sit side by
+8. **Context label group**: affection / period / work-status labels sit side by
    side below the pet.
-8. **Weather awareness**: auto geo-location + Open-Meteo weather; it will chat
+9. **Weather awareness**: auto geo-location + Open-Meteo weather; it will chat
    about rain.
-9. **Chat history**: persisted to JSON; the history dialog opens scrolled to the
+10. **Chat history**: persisted to JSON; the history dialog opens scrolled to the
    latest message.
-10. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
+11. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
     one-click recall (never get stuck off-screen).
-11. **The usual desktop-pet stuff**: auto-start, tray control, always-on-top.
-12. **App awareness**: each conversation includes the currently open app
+12. **The usual desktop-pet stuff**: auto-start, tray control, always-on-top.
+13. **App awareness**: each conversation includes the currently open app
     windows (foreground first) plus apps producing audio (background
     music/video counts), so the AI can tell what you're doing.
 
@@ -90,6 +96,10 @@ cloud preset — see "AI settings".)
 ### Common actions
 
 - **Chat**: press Enter in the input box below the pet.
+- **Images**: drag a PNG/JPG/WEBP/GIF onto the pet, or take a screenshot
+  (Win+Shift+S) and press Ctrl+V in the input box, or right-click the pet →
+  "Send image…". It comments on the picture, and later text questions stay in
+  the same conversation.
 - **Head pat**: left-click the pet (animation + AI reaction); press-and-drag to
   move (position remembered automatically).
 - **Zoom**: hover over the pet and scroll the wheel.
@@ -128,7 +138,7 @@ backup). Common keys:
 ## Development & testing
 
 ```bash
-python tests/offscreen_smoke.py   # offscreen self-check (90 checks)
+python tests/offscreen_smoke.py   # offscreen self-check (154 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
 ```
 

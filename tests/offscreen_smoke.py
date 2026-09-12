@@ -13,8 +13,8 @@ import re
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt5.QtCore import QEventLoop, QTimer, QEvent, QPointF, QPoint, Qt  # noqa: E402
-from PyQt5.QtGui import QImage, QMouseEvent  # noqa: E402
+from PyQt5.QtCore import QEventLoop, QTimer, QEvent, QPointF, QPoint, Qt, QMimeData, QUrl  # noqa: E402
+from PyQt5.QtGui import QImage, QMouseEvent, QDropEvent, QKeyEvent  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QPlainTextEdit  # noqa: E402
 
 from affection import AffectionSystem  # noqa: E402
@@ -31,7 +31,7 @@ import weather as weather_mod  # noqa: E402
 app = QApplication(sys.argv)
 tmp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp")
 os.makedirs(tmp, exist_ok=True)
-for stale in ("config_selftalk.json", "hist.json", "hist_live.json"):
+for stale in ("config_selftalk.json", "hist.json", "hist_live.json", "hist_img.json"):
     p = os.path.join(tmp, stale)
     if os.path.exists(p):
         os.remove(p)
@@ -625,8 +625,8 @@ _cap2 = []
 
 
 class _CaptureAI(ai_mod.AIClient):
-    def chat(self, messages, meta=None, system_fn=None):
-        _cap2.append(([dict(m) for m in messages], system_fn()))
+    def chat(self, messages, meta=None, system_fn=None, image=None):
+        _cap2.append(([dict(m) for m in messages], system_fn(), image))
 
 
 _preset_saved = pet2.config.get("ai_preset", "")
@@ -834,6 +834,100 @@ app.processEvents()
 check("balloon cooldown expires after 5s",
       pet2._balloon is not None and pet2._balloon is not _b1
       and pet2._balloon._text == "third balloon")
+
+# 11.6 发图给 AI：拖入 / Ctrl+V 粘贴 / 右键发送图片 → 多模态 image_url 请求
+import base64 as _b64  # noqa: E402
+import tempfile as _tempfile  # noqa: E402
+import pet_window as pet_window_mod  # noqa: E402
+
+send_png = os.path.join(tmp, "send.png")
+send_img = QImage(40, 40, QImage.Format_ARGB32)
+send_img.fill(0xFF22AA55)
+send_img.save(send_png, "PNG")
+with open(send_png, "rb") as _f:
+    _raw = _f.read()
+_data_url = ai_mod.image_data_url(send_png)
+check("image_data_url encodes file as base64 data url",
+      _data_url.startswith("data:image/png;base64,")
+      and _b64.b64decode(_data_url.split(",", 1)[1]) == _raw)
+
+_img_kw = {}
+ai_mod.requests.post = lambda *a, **k: (_img_kw.update(k), _FakeAIResp())[1]
+ai_mod.AIClient(pet2.config)._worker(
+    [{"role": "user", "content": "看看"}], {"kind": "chat"}, None, send_png)
+_sent = _img_kw.get("json", {}).get("messages", [])
+check("image request sends multimodal content parts",
+      len(_sent) == 1 and isinstance(_sent[0]["content"], list)
+      and _sent[0]["content"][0] == {"type": "text", "text": "看看"}
+      and _sent[0]["content"][1]["type"] == "image_url"
+      and _sent[0]["content"][1]["image_url"]["url"] == _data_url,
+      _sent)
+_img_kw.clear()
+ai_mod.AIClient(pet2.config)._worker([{"role": "user", "content": "纯文本"}], {"kind": "chat"})
+check("text-only request keeps plain string content",
+      _img_kw["json"]["messages"][-1]["content"] == "纯文本",
+      _img_kw["json"]["messages"][-1])
+ai_mod.requests.post = _orig_post
+
+_img_paths = []
+pet2.window.imageInputRequested.connect(_img_paths.append)
+_mime_img = QMimeData()
+_mime_img.setUrls([QUrl.fromLocalFile(send_png)])
+check("image mime data resolves to local path",
+      pet_window_mod.image_path_from_mime(_mime_img) == send_png)
+pet2.window.dropEvent(QDropEvent(QPointF(1, 1), Qt.CopyAction, _mime_img,
+                                 Qt.LeftButton, Qt.NoModifier))
+check("dropping an image file asks to send it", _img_paths == [send_png], _img_paths)
+
+not_image = os.path.join(tmp, "note.txt")
+with open(not_image, "w", encoding="utf-8") as _f:
+    _f.write("x")
+_mime_txt = QMimeData()
+_mime_txt.setUrls([QUrl.fromLocalFile(not_image)])
+pet2.window.dropEvent(QDropEvent(QPointF(1, 1), Qt.CopyAction, _mime_txt,
+                                 Qt.LeftButton, Qt.NoModifier))
+check("non-image drop is ignored", _img_paths == [send_png], _img_paths)
+
+_img_paths[:] = []
+QApplication.clipboard().clear()
+QApplication.clipboard().setImage(send_img)
+pet2.window.chat_input.setFocus()
+pet2.window.chat_input.keyPressEvent(
+    QKeyEvent(QEvent.KeyPress, Qt.Key_V, Qt.ControlModifier, "v"))
+check("ctrl+V a clipboard image asks to send it",
+      len(_img_paths) == 1 and os.path.dirname(_img_paths[0]) == _tempfile.gettempdir()
+      and os.path.exists(_img_paths[0]), _img_paths)
+QApplication.clipboard().setText("粘贴文字")
+pet2.window.chat_input.setText("")
+pet2.window.chat_input.keyPressEvent(
+    QKeyEvent(QEvent.KeyPress, Qt.Key_V, Qt.ControlModifier, "v"))
+check("ctrl+V text still pastes text",
+      pet2.window.chat_input.text() == "粘贴文字" and len(_img_paths) == 1,
+      (pet2.window.chat_input.text(), _img_paths))
+pet2.window.chat_input.clear()
+
+_hist_saved = pet2.history
+pet2.history = ChatHistory(os.path.join(tmp, "hist_img.json"), 20)
+_preset_img_saved = pet2.config.get("ai_preset", "")
+pet2.config.set("ai_preset", "deepseek_web2api")
+pet2._convo_primed = True  # 内置服务已在对话中：本条不带历史回放
+pet2._start_mono = _time.monotonic() - 30.0
+pet2.ai = _CaptureAI(pet2.config)
+_cap2[:] = []
+_floats_before = list(pet2.window._floats)
+pet2._on_user_image(send_png)
+_new_floats = [f.text() for f in pet2.window._floats if f not in _floats_before]
+check("user image reaches the AI client with the file path",
+      len(_cap2) == 1 and _cap2[0][2] == send_png, _cap2)
+check("sending an image floats a success notice",
+      _new_floats == ["发送图片成功"], _new_floats)
+check("user image recorded in chat history",
+      len(pet2.history.items) == 1 and "图片" in pet2.history.items[0]["content"]
+      and pet2.history.items[0]["role"] == "user",
+      pet2.history.items)
+pet2.ai = _ai_off
+pet2.history = _hist_saved
+pet2.config.set("ai_preset", _preset_img_saved)
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")

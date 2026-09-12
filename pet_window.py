@@ -6,11 +6,12 @@ import os
 import threading
 import sys
 import ctypes
+import tempfile
 import time
 
 from PyQt5.QtCore import Qt, QPoint, QSize, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
-from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImageReader, QFontMetrics
-from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication, QLineEdit
+from PyQt5.QtGui import QMovie, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QImageReader, QFontMetrics, QKeySequence
+from PyQt5.QtWidgets import QWidget, QLabel, QMenu, QGraphicsOpacityEffect, QApplication, QLineEdit, QFileDialog
 
 from scheduler import is_peak
 import petlog
@@ -19,6 +20,19 @@ MAX_PET_SIZE = 240
 MIN_PET_SIZE = 30
 MAX_SCALE = 4.0
 MIN_SCALE = 0.2
+
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def image_path_from_mime(mime):
+    """拖入的文件里挑第一张支持的图片，没有则返回空串。"""
+    if not mime or not mime.hasUrls():
+        return ""
+    for url in mime.urls():
+        path = os.path.normpath(url.toLocalFile())
+        if path and path.lower().endswith(IMAGE_EXTS) and os.path.exists(path):
+            return path
+    return ""
 
 
 def set_topmost_flag(widget, on):
@@ -66,6 +80,7 @@ class ChatInput(QLineEdit):
         self.setFrame(False)
         self.setStyleSheet("QLineEdit { background: transparent; border: none; }")
         self.setTextMargins(8, 3, 8, 3)
+        self.setToolTip("输入后回车发送；也可拖入图片或 Ctrl+V 粘贴截图")
         self.returnPressed.connect(self._send)
         self._apply_style()
 
@@ -75,6 +90,27 @@ class ChatInput(QLineEdit):
             self.clear()
             if self.pet_window is not None:
                 self.pet_window.chatInputRequested.emit(text)
+
+    def keyPressEvent(self, event):
+        """Ctrl+V 粘贴剪贴板里的图片（Win+Shift+S 截图）直接发送；文本仍走原生粘贴。"""
+        if event.matches(QKeySequence.Paste) and self._send_clipboard_image():
+            return
+        super().keyPressEvent(event)
+
+    def _send_clipboard_image(self):
+        """剪贴板是图片（无文字）时存成临时 PNG 直接送 AI，返回是否已处理。"""
+        if self.pet_window is None:
+            return False
+        md = QApplication.clipboard().mimeData()
+        img = QApplication.clipboard().image()
+        if not md.hasImage() or md.hasText() or img is None or img.isNull():
+            return False
+        path = os.path.join(tempfile.gettempdir(),
+                            "pet_clip_%d.png" % int(time.time() * 1000))
+        if not img.save(path, "PNG"):
+            return False
+        self.pet_window.imageInputRequested.emit(path)
+        return True
 
     def set_top_flag(self, on):
         set_topmost_flag(self, on)
@@ -443,6 +479,7 @@ class PetWindow(QWidget):
     autoStartRequested = pyqtSignal(bool)
     petHeadRequested = pyqtSignal()
     chatInputRequested = pyqtSignal(str)
+    imageInputRequested = pyqtSignal(str)
     historyRequested = pyqtSignal()
     balanceVisibleRequested = pyqtSignal(bool)
     moved = pyqtSignal(QPoint)
@@ -455,6 +492,7 @@ class PetWindow(QWidget):
         self.config = config
         self.default_image = default_image
         self._drag_pos = None
+        self.setAcceptDrops(True)
         self._floats = set()
         self._movie = None
         self._normal_pixmap = QPixmap()
@@ -712,6 +750,26 @@ class PetWindow(QWidget):
                      status.y() + status.height() + 6)
 
     # ---------- 左键交互（单击从头播放一遍互动 GIF，连点重放；长按出摸头语录） ----------
+    def _pick_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择要发送的图片", "", "图片 (*.png *.jpg *.jpeg *.webp *.gif)")
+        if path:
+            self.imageInputRequested.emit(path)
+
+    def dragEnterEvent(self, event):
+        if image_path_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if image_path_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        path = image_path_from_mime(event.mimeData())
+        if path:
+            event.acceptProposedAction()
+            self.imageInputRequested.emit(path)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
@@ -932,6 +990,7 @@ class PetWindow(QWidget):
         act_balance.triggered.connect(self.balanceVisibleRequested.emit)
         act_hist = menu.addAction("聊天记录…")
         act_hist.triggered.connect(self.historyRequested.emit)
+        menu.addAction("发送图片…", self._pick_image)
         act_autostart = menu.addAction("开机自启")
         act_autostart.setCheckable(True)
         act_autostart.setChecked(bool(self.config.get("auto_start", False)))

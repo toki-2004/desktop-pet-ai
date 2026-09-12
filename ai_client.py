@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """OpenAI 兼容对话客户端：后台线程调 /v1/chat/completions，信号回主线程。"""
+import base64
+import mimetypes
 import re
 import threading
 
@@ -43,6 +45,13 @@ def strip_citations(text):
     return text.strip()
 
 
+def image_data_url(path):
+    """本地图片 → OpenAI 多模态 data URL（内置 web2api 落盘后上传给 DeepSeek 网页）。"""
+    mime = mimetypes.guess_type(path)[0] or "image/png"
+    with open(path, "rb") as f:
+        return "data:%s;base64,%s" % (mime, base64.b64encode(f.read()).decode("ascii"))
+
+
 class AIClient(QObject):
     """chat() 发起异步请求；system prompt 在 worker 线程组装（含阻塞的系统感知调用，
     不卡 GUI）；reply 信号回 (text, ok, meta)。"""
@@ -53,13 +62,13 @@ class AIClient(QObject):
         super().__init__()
         self.config = config
 
-    def chat(self, messages, meta=None, system_fn=None):
+    def chat(self, messages, meta=None, system_fn=None, image=None):
         """messages 不含 system 消息时传 system_fn()，在 worker 线程生成 system 前置。"""
         threading.Thread(
-            target=self._worker, args=(list(messages), meta, system_fn), daemon=True
+            target=self._worker, args=(list(messages), meta, system_fn, image), daemon=True
         ).start()
 
-    def _worker(self, messages, meta, system_fn=None):
+    def _worker(self, messages, meta, system_fn=None, image=None):
         try:
             system = system_fn() if system_fn else ""
         except Exception as e:
@@ -67,6 +76,16 @@ class AIClient(QObject):
             system = ""
         if system:
             messages = [{"role": "system", "content": system}] + messages
+        if image:
+            # 图片读盘/编码留在 worker 线程，主线程不卡
+            try:
+                last = messages[-1]
+                messages[-1] = {"role": last["role"], "content": [
+                    {"type": "text", "text": last["content"]},
+                    {"type": "image_url", "image_url": {"url": image_data_url(image)}},
+                ]}
+            except Exception as e:
+                petlog.log("image attach failed: %s" % e)
         base = (self.config.get("ai_base_url") or "").rstrip("/")
         model = self.config.get("ai_model") or ""
         key = self.config.get("ai_api_key") or ""

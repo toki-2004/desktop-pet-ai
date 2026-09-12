@@ -399,7 +399,8 @@ class DesktopPet:
         # AI worker 线程执行，避免摸头/对话时卡住 GUI（GIF 播放延迟的根因）
         self.ai.chat(
             msgs, meta,
-            system_fn=lambda: self._system_prompt(meta.get("tag", ""), persona=fresh))
+            system_fn=lambda: self._system_prompt(meta.get("tag", ""), persona=fresh),
+            image=meta.get("image"))
 
     def _on_selftalk_tag(self, tag):
         reason = TAG_ZH.get(tag, tag)
@@ -421,6 +422,14 @@ class DesktopPet:
     def _on_user_chat(self, text):
         self.history.append("user", text)
         self._ask_ai([{"role": "user", "content": text}], {"kind": "chat"})
+
+    def _on_user_image(self, path):
+        """发图片给 AI：文字提示 + 图片走同一条链路（内置服务会自动上传到网页版识图）。"""
+        self.history.append("user", "（发送了一张图片：%s）" % os.path.basename(path))
+        self.window.show_float_text("发送图片成功", "#22C55E")
+        self._ask_ai(
+            [{"role": "user", "content": "（我发了一张图片，看看它，随口说点什么）"}],
+            {"kind": "chat", "image": path})
 
     def _on_ai_reply(self, text, ok, meta):
         meta = meta or {}
@@ -456,6 +465,8 @@ class DesktopPet:
         w.petHeadRequested.connect(lambda: self.affection.note_pet())
         w.chatInputRequested.connect(self._on_user_chat)
         w.chatInputRequested.connect(lambda: self.talk.note_interaction())
+        w.imageInputRequested.connect(self._on_user_image)
+        w.imageInputRequested.connect(lambda: self.talk.note_interaction())
         w.historyRequested.connect(self._open_history)
         w.balanceVisibleRequested.connect(self._on_balance_visible)
         w.moved.connect(self._on_moved)
