@@ -135,8 +135,9 @@ python main.py
 ## 开发与测试
 
 ```bash
-python tests/offscreen_smoke.py   # 离屏自检（183 项）
+python tests/offscreen_smoke.py   # 离屏自检（209 项）
 PET_SMOKE=1 python main.py        # 冒烟，exit=0 通过
+tools\apk\build_apk.cmd           # 把聊天网页打成手机 APK（教程见 tools/apk/README.md）
 ```
 
 ## 相关项目

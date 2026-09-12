@@ -174,8 +174,9 @@ backup). Common keys:
 ## Development & testing
 
 ```bash
-python tests/offscreen_smoke.py   # offscreen self-check (183 checks)
+python tests/offscreen_smoke.py   # offscreen self-check (209 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
+tools\apk\build_apk.cmd           # pack the chat page into a phone APK (see tools/apk/README.md)
 ```
 
 ## Related projects
