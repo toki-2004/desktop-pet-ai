@@ -160,12 +160,22 @@ PAGE = """<!doctype html>
 var K = new URLSearchParams(location.search).get('k') || '';
 var api = function(p){ return p + (K ? '?k=' + encodeURIComponent(K) : ''); };
 var rev = -1, waiting = 0, tierZh = {high:'高', mid:'一般', low:'低'};
-function nearBottom(){
-  return document.body.scrollHeight - window.scrollY - window.innerHeight < 60;
+/* follow：是否跟着最新消息走。
+   true  = 每来一条新消息就翻到底（默认，也是"我自己发消息"之后的状态）
+   false = 我正在往上翻旧记录：不打扰，只提示"有新消息 ↓"，滑到底部自动恢复 */
+var follow = true, ignoreScrollUntil = 0;
+function scrollHeight(){
+  return Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
 }
-function render(msgs, keepPos){
+function nearBottom(){
+  return scrollHeight() - window.scrollY - window.innerHeight < 60;
+}
+function toBottom(){
+  ignoreScrollUntil = Date.now() + 400;   // 自己滚动引起的 scroll 事件别当成"用户在翻记录"
+  window.scrollTo(0, scrollHeight());
+}
+function render(msgs){
   var list = document.getElementById('list');
-  var atBottom = !keepPos || nearBottom();
   list.textContent = '';
   var frag = document.createDocumentFragment();
   msgs.forEach(function(m){
@@ -199,9 +209,12 @@ function render(msgs, keepPos){
   var replied = !!last && last.role !== 'user';
   if (replied) { waiting = 0; document.getElementById('send').disabled = false; }
   document.getElementById('hint').textContent = waiting ? '已发送，桌宠思考中…' : '';
-  if (atBottom) { window.scrollTo(0, document.body.scrollHeight);
-                  document.getElementById('new').style.display = 'none'; }
-  else if (keepPos) { document.getElementById('new').style.display = 'block'; }
+  if (follow) {
+    toBottom();
+    document.getElementById('new').style.display = 'none';
+  } else {
+    document.getElementById('new').style.display = 'block';
+  }
 }
 function tick(first){
   fetch(api('/api/history')).then(function(r){ return r.json(); }).then(function(d){
@@ -210,9 +223,8 @@ function tick(first){
         '好感 ' + (d.affection === null || d.affection === undefined ? '…' : Math.round(d.affection))
         + (tierZh[d.tier] ? ' · ' + tierZh[d.tier] : '');
     if (d.rev !== rev) {
-      var grew = rev >= 0 && d.rev !== rev;
       rev = d.rev;
-      render(d.messages, grew);   // 老记录不再跳到底，出新消息才给提示
+      render(d.messages);
     }
     document.getElementById('send').disabled = !!waiting;
   }).catch(function(){ document.getElementById('hint').textContent = '连不上桌宠'; });
@@ -221,6 +233,7 @@ function send(){
   var el = document.getElementById('txt'); var text = el.value.trim();
   if (!text) return;
   el.value = ''; waiting = 1;
+  follow = true;                 // 自己发的消息：一定翻到最新
   // 先本地显示，别等下一轮轮询（发送后立刻能看到自己发的话）
   localEcho(text);
   document.getElementById('hint').textContent = '已发送，桌宠思考中…';
@@ -271,11 +284,11 @@ function localEcho(text){
   body.textContent = text;
   box.appendChild(body);
   list.appendChild(box);
-  window.scrollTo(0, document.body.scrollHeight);
+  toBottom();
 }
 function sendImage(file){
   if (!file) return;
-  waiting = 1;
+  waiting = 1; follow = true;    // 自己发的消息：一定翻到最新
   document.getElementById('send').disabled = true;
   document.getElementById('hint').textContent = '正在上传图片…';
   localEcho('（发送了一张图片：' + file.name + '）');
@@ -302,12 +315,24 @@ document.getElementById('file').addEventListener('change', function(e){
 document.getElementById('send').onclick = send;
 document.getElementById('pat').onclick = pat;
 document.getElementById('new').onclick = function(){
-  window.scrollTo(0, document.body.scrollHeight);
+  follow = true;
+  toBottom();
   this.style.display = 'none';
 };
 window.addEventListener('scroll', function(){
-  if (nearBottom()) document.getElementById('new').style.display = 'none';
+  if (Date.now() < ignoreScrollUntil) return;
+  if (nearBottom()) {                 // 滑回底部 → 恢复"跟着最新"
+    follow = true;
+    document.getElementById('new').style.display = 'none';
+  } else {
+    follow = false;                   // 手动往上翻 → 不打扰，只提示有新消息
+  }
 });
+if (window.visualViewport) {          // 手机键盘弹收会改视口，跟着最新时保持贴底
+  window.visualViewport.addEventListener('resize', function(){
+    if (follow) toBottom();
+  });
+}
 document.getElementById('txt').addEventListener('keydown', function(e){
   if (e.key === 'Enter') send(); });
 setInterval(function(){ tick(false); }, 2000); tick(true);

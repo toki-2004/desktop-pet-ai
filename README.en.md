@@ -111,7 +111,10 @@ cloud preset — see "AI settings".)
   the same conversation.
 - **Phone / tablet**: right-click the pet → "Copy chat page address" and open it
   on a device on the same WiFi. The page refreshes every 2 seconds (replies appear
-  as soon as the pet answers), its header shows the affection and offers a
+  as soon as the pet answers) and follows the newest message by default (sending
+  your own message always jumps to the latest); while you scroll back through old
+  messages it stays put and only shows a "有新消息 ↓" hint until you tap it or
+  scroll to the bottom. Its header shows the affection and offers a
   "摸头" (head-pat) button identical to clicking the pet, and its input box sends
   messages exactly like the pet's own input box. Next to it a "图片" button sends
   a photo/gallery image, exactly like dropping an image on the desktop pet
