@@ -998,16 +998,29 @@ class PetWindow(QWidget):
         act_balance.setChecked(bool(self.config.get("show_balance", True)))
         act_balance.triggered.connect(self.balanceVisibleRequested.emit)
         act_hist = menu.addAction("聊天记录…")
-        act_hist.triggered.connect(self.historyRequested.emit)
-        menu.addAction("复制聊天记录网页地址", self.webchatUrlRequested.emit)
-        menu.addAction("发送图片…", self._pick_image)
+        act_webchat = menu.addAction("复制聊天记录网页地址")
+        act_image = menu.addAction("发送图片…")
         act_autostart = menu.addAction("开机自启")
         act_autostart.setCheckable(True)
         act_autostart.setChecked(bool(self.config.get("auto_start", False)))
         act_autostart.triggered.connect(self.autoStartRequested.emit)
-        menu.addAction("通知设置…", self.settingsRequested.emit)
-        menu.addAction("更换外观 (PNG/GIF)…", self.appearanceRequested.emit)
-        menu.addAction("发送测试通知", self.testNotifyRequested.emit)
+        act_settings = menu.addAction("通知设置…")
+        act_appearance = menu.addAction("更换外观 (PNG/GIF)…")
+        act_notify = menu.addAction("发送测试通知")
         menu.addSeparator()
         menu.addAction("退出", self.quitRequested.emit)
-        menu.exec_(event.globalPos())
+        chosen = menu.exec_(event.globalPos())
+        # 开窗口的动作一律等菜单关掉之后再触发：在菜单的嵌套事件循环里 show() 新窗口，
+        # Windows 上第一次会被弹窗的输入抓取吃掉（表现为"第一次点了没反应，第二次才行"）
+        if chosen is act_hist:
+            self.historyRequested.emit()
+        elif chosen is act_webchat:
+            self.webchatUrlRequested.emit()
+        elif chosen is act_image:
+            self._pick_image()
+        elif chosen is act_settings:
+            self.settingsRequested.emit()
+        elif chosen is act_appearance:
+            self.appearanceRequested.emit()
+        elif chosen is act_notify:
+            self.testNotifyRequested.emit()

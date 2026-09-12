@@ -1222,7 +1222,8 @@ check("web message reaches the pet like typing does",
       (pet2.history.items, _cap2))
 
 # 网页"摸头"按钮必须等于用鼠标单击桌宠：好感上升 + 触发摸头 AI 反应
-pet2.affection.config.set("affection_gain", 5.0)
+_aff_real = pet2.affection          # 换成测试专用的好感系统：别改用户真实好感值
+pet2.affection = AffectionSystem(Config(os.path.join(tmp, "config_affection.json")))
 _aff_before = pet2.affection.value()
 _cap2[:] = []
 _code, _body = _http("http://127.0.0.1:%d/api/pat" % _pet_wc.port, data=b"{}")
@@ -1251,6 +1252,38 @@ check("web image reaches the pet like dropping a file on it",
        _cap2[-1][2] if _cap2 else None))
 _pet_wc.stop()
 pet2.history = _hist_real2
+pet2.affection = _aff_real
+
+# 11.9 右键菜单：点"聊天记录"要弹窗（曾因在菜单事件循环里开窗口而在 Windows 上第一次失效）
+from PyQt5.QtGui import QContextMenuEvent  # noqa: E402
+from PyQt5.QtWidgets import QMenu  # noqa: E402
+
+pet2._history_dlg = None
+_orig_menu_exec = QMenu.exec_
+
+
+def _fake_menu_exec(self, *a, **k):
+    """模拟"用户在菜单里选了聊天记录"：真实路径就是 exec_ 返回被选中的 action。"""
+    for act in self.actions():
+        if act.text().startswith("聊天记录"):
+            return act
+    return None
+
+
+QMenu.exec_ = _fake_menu_exec
+try:
+    for _attempt in (1, 2):
+        pet2.window.contextMenuEvent(
+            QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(5, 5), QPoint(300, 300)))
+        app.processEvents()
+        _dlg = getattr(pet2, "_history_dlg", None)
+        check("right-click -> chat history opens the dialog (attempt %d)" % _attempt,
+              _dlg is not None and _dlg.isVisible(), (_attempt, _dlg))
+        if _dlg is not None:
+            _dlg.close()
+            app.processEvents()
+finally:
+    QMenu.exec_ = _orig_menu_exec
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
