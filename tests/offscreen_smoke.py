@@ -1190,6 +1190,9 @@ check("webchat page follows new messages unless the user is reading back",
 check("webchat only stops following after scrolling past 3 messages",
       "KEEP_FOLLOW_MAX_BELOW = 3" in _page and "function messagesBelow" in _page
       and "messagesBelow() <= KEEP_FOLLOW_MAX_BELOW" in _page)
+check("webchat re-sticks to the bottom while content keeps growing",
+      "function stickToBottom" in _page and "ResizeObserver" in _page
+      and "requestAnimationFrame(toBottom)" in _page)
 check("webchat keeps affection/pat bar pinned to the top",
       "#head{position:fixed;left:0;right:0;top:0" in _page
       and "position:sticky" not in _page and "#list{padding:56px" in _page)

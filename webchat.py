@@ -183,6 +183,17 @@ function toBottom(){
   ignoreScrollUntil = Date.now() + 400;   // 自己滚动引起的 scroll 事件别当成"用户在翻记录"
   window.scrollTo(0, scrollHeight());
 }
+var settleTimer = 0;
+function stickToBottom(){
+  /* 一次性贴底不够：长回复换行、图片懒加载、字体测量都会让内容继续变高，
+     这一下算出来的高度还是旧的（表现就是"停在'时间 桌宠'那行、没到回复最底下"）。
+     所以连贴几帧 + 稍后再补一次，并靠 ResizeObserver 兜住后续的高度变化。*/
+  toBottom();
+  requestAnimationFrame(toBottom);
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(function(){ if (follow) toBottom(); }, 80);
+  setTimeout(function(){ if (follow) toBottom(); }, 300);
+}
 function render(msgs){
   var list = document.getElementById('list');
   list.textContent = '';
@@ -219,7 +230,7 @@ function render(msgs){
   if (replied) { waiting = 0; document.getElementById('send').disabled = false; }
   document.getElementById('hint').textContent = waiting ? '已发送，桌宠思考中…' : '';
   if (follow) {
-    toBottom();
+    stickToBottom();
     document.getElementById('new').style.display = 'none';
   } else {
     document.getElementById('new').style.display = 'block';
@@ -341,6 +352,11 @@ if (window.visualViewport) {          // 手机键盘弹收会改视口，跟着
   window.visualViewport.addEventListener('resize', function(){
     if (follow) toBottom();
   });
+}
+if (window.ResizeObserver) {          // 内容变高（图片加载完 / 换行突变）时继续贴底
+  new ResizeObserver(function(){
+    if (follow) toBottom();
+  }).observe(document.getElementById('list'));
 }
 document.getElementById('txt').addEventListener('keydown', function(e){
   if (e.key === 'Enter') send(); });
