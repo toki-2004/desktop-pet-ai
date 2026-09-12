@@ -30,6 +30,8 @@
 5. **发图片聊天**：拖入图片 / Ctrl+V 粘贴截图 / 右键"发送图片…"，AI 看图回话并落盘记录。
 6. **聊天记录网页（局域网）**：手机、平板连同一个 WiFi 打开一个网址就能看聊天记录、
    直接和桌宠说话（效果与在桌宠输入框打字一致）；地址带一次性 token，右键"复制聊天记录网页地址"。
+   附带一个 11KB 的小 APK（`desktop-pet-chat.apk`）：打开就是两个按钮，地址1 = 局域网直连，
+   地址2 = frp 外网隧道，省得手输网址。
 7. **工作状态感知**：绑定余额账号后按余额升降判定"工作中 / 空闲中 / 充值了"，
    并作为 AI 的 prompt 参数，状态切换时 AI 会主动说话。
 8. **余额查询**：多平台账号（DeepSeek / Kimi / 硅基流动）轮询余额，余额文本常驻桌宠左上角。
@@ -71,6 +73,17 @@ python main.py
 ```
 
 （源码运行同样需要内置 AI 的本地 vendor 包，或改用云端预设，见"AI 设置"。）
+
+### 手机 APK（可选，打开聊天网页用）
+
+1. 下载 Release 里的 `desktop-pet-chat.apk` 装到手机/平板（Android 7+）。
+2. 打开后是两个按钮：**地址1** = 局域网直连（`http://172.42.50.38:8848/?k=…`），
+   **地址2** = frp 外网隧道（`https://frp-off.com:56794/?k=…`）；点开即在 App 内用
+   WebView 打开聊天网页，返回键回到按钮页。
+3. 地址和口令是打包时写死的（口令 = 桌宠 `config.json` 里的 `webchat_token`）。要改地址或
+   换口令：编辑 `android/app/src/main/java/com/toki/petchat/MainActivity.java` 顶部的
+   `URLS`，然后跑 `android\build_apk.cmd`（需要 JDK17 + `D:\gradle-8.7` + `D:\android-sdk`），
+   产物自动拷到项目根目录的 `desktop-pet-chat.apk`。
 
 ### 常用操作
 
@@ -127,6 +140,7 @@ python main.py
 ```bash
 python tests/offscreen_smoke.py   # 离屏自检（183 项）
 PET_SMOKE=1 python main.py        # 冒烟，exit=0 通过
+android\build_apk.cmd             # 重新打包聊天网页 APK（产物：desktop-pet-chat.apk）
 ```
 
 ## 相关项目

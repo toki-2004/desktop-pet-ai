@@ -29,3 +29,11 @@ chat_history.json.bak-*
 # node 运行时、node_modules、登录态 data、tmp 由 vendor 内 .gitignore 排除
 vendor/DeepSeekWeb2API/*.bat
 vendor/DeepSeekWeb2API/web2api.log
+
+# Android 构建产物（源码入库，产物不入库）
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk

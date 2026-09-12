@@ -42,6 +42,8 @@ zero-cost chatting with no API key at all.
 6. **Chat-history web page (LAN)**: open one URL from your phone or tablet on the
    same WiFi to read the history and talk to the pet — exactly like typing in the
    pet's input box. The URL carries a token; right-click the pet to copy it.
+   A tiny (11 KB) companion APK `desktop-pet-chat.apk` is included: it opens with
+   two buttons, "地址1" for the LAN address and "地址2" for the frp tunnel.
 7. **Work-status awareness**: after binding a balance account, work state
    (working / idle / topped up) is derived from balance changes and injected
    into the AI prompt; the AI speaks on state changes.
@@ -95,6 +97,18 @@ python main.py
 
 (From source you also need the local vendor bundle for the built-in AI, or use a
 cloud preset — see "AI settings".)
+
+### Phone APK (optional, for the chat page)
+
+1. Install `desktop-pet-chat.apk` from the release on your phone/tablet (Android 7+).
+2. It opens on two buttons: **地址1** = LAN (`http://172.42.50.38:8848/?k=…`) and
+   **地址2** = frp tunnel (`https://frp-off.com:56794/?k=…`). Tapping one opens the
+   chat page in a WebView; the back button returns to the buttons.
+3. The addresses and token are baked in at build time (token =
+   `webchat_token` in the pet's `config.json`). To change them, edit `URLS` at the
+   top of `android/app/src/main/java/com/toki/petchat/MainActivity.java` and run
+   `android\build_apk.cmd` (needs JDK 17, `D:\gradle-8.7`, `D:\android-sdk`);
+   the APK lands in the project root.
 
 ### Common actions
 
@@ -162,6 +176,7 @@ backup). Common keys:
 ```bash
 python tests/offscreen_smoke.py   # offscreen self-check (183 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
+android\build_apk.cmd             # rebuild the chat-page APK (output: desktop-pet-chat.apk)
 ```
 
 ## Related projects
