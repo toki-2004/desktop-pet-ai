@@ -39,21 +39,24 @@ zero-cost chatting with no API key at all.
    shape the AI's tone, with an always-visible badge.
 5. **Image chat**: drop an image / paste a screenshot / right-click "Send image…";
    the AI looks at it and answers, and the exchange is saved to history.
-6. **Work-status awareness**: after binding a balance account, work state
+6. **Chat-history web page (LAN)**: open one URL from your phone or tablet on the
+   same WiFi to read the history and talk to the pet — exactly like typing in the
+   pet's input box. The URL carries a token; right-click the pet to copy it.
+7. **Work-status awareness**: after binding a balance account, work state
    (working / idle / topped up) is derived from balance changes and injected
    into the AI prompt; the AI speaks on state changes.
-7. **Balance query**: multi-platform accounts (DeepSeek / Kimi / SiliconFlow),
+8. **Balance query**: multi-platform accounts (DeepSeek / Kimi / SiliconFlow),
    with the balance label always visible at the pet's top-left.
-8. **Context label group**: affection / period / work-status labels sit side by
+9. **Context label group**: affection / period / work-status labels sit side by
    side below the pet.
-9. **Weather awareness**: auto geo-location + Open-Meteo weather; it will chat
+10. **Weather awareness**: auto geo-location + Open-Meteo weather; it will chat
    about rain.
-10. **Chat history**: persisted to JSON; the history dialog opens scrolled to the
+11. **Chat history**: persisted to JSON; the history dialog opens scrolled to the
    latest message.
-11. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
+12. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
     one-click recall (never get stuck off-screen).
-12. **The usual desktop-pet stuff**: auto-start, tray control, always-on-top.
-13. **App awareness**: each conversation includes the currently open app
+13. **The usual desktop-pet stuff**: auto-start, tray control, always-on-top.
+14. **App awareness**: each conversation includes the currently open app
     windows (foreground first) plus apps producing audio (background
     music/video counts), so the AI can tell what you're doing.
 
@@ -100,6 +103,11 @@ cloud preset — see "AI settings".)
   (Win+Shift+S) and press Ctrl+V in the input box, or right-click the pet →
   "Send image…". It comments on the picture, and later text questions stay in
   the same conversation.
+- **Phone / tablet**: right-click the pet → "Copy chat page address" and open it
+  on a device on the same WiFi. The page refreshes every 2 seconds and its input
+  box sends messages exactly like the pet's own input box. The `?k=…` in the URL
+  is the access token (generated on first run, stored in `config.json`); set
+  `webchat_enabled` to `false` to turn the page off.
 - **Head pat**: left-click the pet (animation + AI reaction); press-and-drag to
   move (position remembered automatically).
 - **Zoom**: hover over the pet and scroll the wheel.
@@ -142,6 +150,8 @@ backup). Common keys:
 - Affection: `affection_*` (enabled/initial/cap/gain/decay/thresholds/badge);
 - AI: `ai_preset`, `ai_base_url`, `ai_api_key`, `ai_model`, `ai_persona`,
   `ai_context_n`, `ai_fallback_enabled`, `ai_web2api_max_messages`;
+- Chat page: `webchat_enabled`, `webchat_port` (default 8848), `webchat_bind`
+  (default 0.0.0.0; use 127.0.0.1 for this machine only), `webchat_token`;
 - Balance/work status: `accounts`, `poll_interval_sec`, `show_balance`,
   `work_label_enabled`, `work_state_hold_sec`;
 - Others: `self_talk_enabled`, `self_talk_interval`, `chat_history_max`,
@@ -150,7 +160,7 @@ backup). Common keys:
 ## Development & testing
 
 ```bash
-python tests/offscreen_smoke.py   # offscreen self-check (174 checks)
+python tests/offscreen_smoke.py   # offscreen self-check (183 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
 ```
 

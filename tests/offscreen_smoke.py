@@ -1077,6 +1077,75 @@ check("timeout balloon mentions the 5 minute wait",
       pet2._balloon is not None and "5 分钟" in pet2._balloon._text,
       pet2._balloon._text if pet2._balloon else None)
 
+# 11.8 聊天记录网页（局域网）：历史 + 发消息，token 保护
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+import webchat as webchat_mod  # noqa: E402
+
+wc_hist = ChatHistory(os.path.join(tmp, "hist_web.json"), 50)
+if os.path.exists(os.path.join(tmp, "hist_web.json")):
+    os.remove(os.path.join(tmp, "hist_web.json"))
+wc_hist = ChatHistory(os.path.join(tmp, "hist_web.json"), 50)
+wc_hist.append("user", "网页端测试", "chat")
+wc = webchat_mod.WebChat(wc_hist, port=0, token="tok123", bind="127.0.0.1")
+check("webchat binds an ephemeral port", wc.start() and wc.port > 0, wc.error)
+_wc_base = "http://127.0.0.1:%d" % wc.port
+_wc_sent = []
+wc.chatRequested.connect(_wc_sent.append, Qt.DirectConnection)  # 服务线程直接回调
+
+
+def _http(url, data=None):
+    req = urllib.request.Request(url, data=data,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
+_code, _body = _http(_wc_base + "/api/history?k=tok123")
+check("webchat serves chat history",
+      _code == 200 and _body["messages"][-1]["content"] == "网页端测试", _body)
+_code, _body = _http(_wc_base + "/api/history")
+check("webchat rejects a missing token", _code == 401, (_code, _body))
+_code, _body = _http(_wc_base + "/api/history?k=wrong")
+check("webchat rejects a wrong token", _code == 401, (_code, _body))
+_code, _body = _http(_wc_base + "/api/chat?k=tok123",
+                     data=json.dumps({"text": "在吗"}).encode("utf-8"))
+check("webchat accepts a chat message", _code == 200 and _body.get("ok") is True,
+      (_code, _body))
+check("webchat forwards the message for the pet to send", _wc_sent == ["在吗"], _wc_sent)
+_code, _body = _http(_wc_base + "/api/chat?k=tok123", data=b"{}")
+check("webchat rejects empty text", _code == 400, (_code, _body))
+with urllib.request.urlopen(_wc_base + "/?k=tok123", timeout=5) as _r:
+    _page = _r.read().decode("utf-8")
+check("webchat serves the page", "桌宠聊天记录" in _page and "/api/chat" in _page)
+wc.stop()
+
+# 网页发来的消息必须和"在输入框回车"完全一样：进历史 + 触发 AI 请求
+_pet_wc = webchat_mod.WebChat(pet2.history, port=0, token="", bind="127.0.0.1")
+_pet_wc.chatRequested.connect(pet2.window.chatInputRequested.emit)
+_pet_wc.start()
+_hist_real2 = pet2.history
+pet2.history = ChatHistory(os.path.join(tmp, "hist_web2.json"), 20)
+if os.path.exists(os.path.join(tmp, "hist_web2.json")):
+    os.remove(os.path.join(tmp, "hist_web2.json"))
+pet2.history = ChatHistory(os.path.join(tmp, "hist_web2.json"), 20)
+_pet_wc.history = pet2.history
+pet2.ai = _CaptureAI(pet2.config)
+_cap2[:] = []
+_code, _body = _http("http://127.0.0.1:%d/api/chat" % _pet_wc.port,
+                     data=json.dumps({"text": "网页消息"}).encode("utf-8"))
+app.processEvents()
+check("web message reaches the pet like typing does",
+      _code == 200 and pet2.history.items
+      and pet2.history.items[-1]["content"] == "网页消息"
+      and _cap2 and _cap2[-1][0][-1]["content"] == "网页消息",
+      (pet2.history.items, _cap2))
+_pet_wc.stop()
+pet2.history = _hist_real2
+
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
 check("wclass cloudy", wclass(3, 5) == "cloudy")

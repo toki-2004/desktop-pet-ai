@@ -61,6 +61,11 @@ DEFAULT_CONFIG = {
     "ai_fallback_text": "唔……我现在有点短路了",
     "ai_web2api_max_messages": 20,  # 内置 DeepSeek 网页对话的消息上限（0=不限制）
     "chat_history_max": 200,
+    # 聊天记录网页（局域网）：手机/平板连同一个 WiFi 就能看记录并和桌宠说话
+    "webchat_enabled": True,
+    "webchat_port": 8848,
+    "webchat_bind": "0.0.0.0",
+    "webchat_token": "",  # 首次启动自动生成，URL 里带 ?k=xxx 才能访问
     "chat_input_offset": [],
 }
 

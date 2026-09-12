@@ -30,6 +30,7 @@ from balance import BalanceMonitor
 from running_apps import audio_apps, media_track, running_apps
 import autostart
 import web2api
+import webchat
 
 FROZEN = bool(getattr(sys, "frozen", False))
 if FROZEN:
@@ -331,6 +332,9 @@ class DesktopPet:
         # 新对话的第一条请求注入（启动/重连后的首请求），不逐条重复。
         self._convo_primed = False
         self._wire()
+        self.webchat = None
+        if not os.environ.get("PET_SMOKE"):
+            self._start_webchat()
         self._restore_position()
         if not self.config.get("pet_interact_image") and os.path.exists(DEFAULT_INTERACT):
             self.config.set("pet_interact_image", DEFAULT_INTERACT)
@@ -341,6 +345,41 @@ class DesktopPet:
             if os.path.isdir(web2api.VENDOR_DIR):
                 self.web2api.ensure_async()  # 探测/拉起内置 AI；未绑定会弹登录
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
+
+    # ---------- 聊天记录网页（局域网） ----------
+    def _start_webchat(self):
+        """起一个小 HTTP 服务：看聊天记录 + 直接和桌宠说话（和输入框同一条链路）。"""
+        if not bool(self.config.get("webchat_enabled", True)):
+            petlog.log("webchat disabled by config")
+            return
+        token = str(self.config.get("webchat_token") or "")
+        if not token:
+            token = os.urandom(4).hex()
+            self.config.set("webchat_token", token)
+        self.webchat = webchat.WebChat(
+            self.history,
+            port=int(self.config.get("webchat_port", 8848) or 8848),
+            token=token,
+            bind=str(self.config.get("webchat_bind", "0.0.0.0") or "0.0.0.0"))
+        # 收到的消息走 window.chatInputRequested：与在输入框回车完全一致
+        self.webchat.chatRequested.connect(self.window.chatInputRequested.emit)
+        if self.webchat.start():
+            petlog.log("webchat listening: %s" % self.webchat.url())
+            QApplication.instance().aboutToQuit.connect(self.webchat.stop)
+        else:
+            petlog.log("webchat failed to start: %s" % self.webchat.error)
+            self.webchat = None
+
+    def _webchat_url(self):
+        return self.webchat.url() if self.webchat is not None else ""
+
+    def _copy_webchat_url(self):
+        url = self._webchat_url()
+        if not url:
+            self._show_balloon("聊天记录网页没开：config.json 里 webchat_enabled 改成 true 再重启桌宠。")
+            return
+        QApplication.clipboard().setText(url)
+        self._show_balloon("已复制聊天记录网页地址：%s（手机/平板连同一个 WiFi 打开）" % url)
 
     def _on_web2api_status(self, ok, msg):
         if msg:
@@ -491,6 +530,7 @@ class DesktopPet:
         w.imageInputRequested.connect(self._on_user_image)
         w.imageInputRequested.connect(lambda: self.talk.note_interaction())
         w.historyRequested.connect(self._open_history)
+        w.webchatUrlRequested.connect(self._copy_webchat_url)
         w.balanceVisibleRequested.connect(self._on_balance_visible)
         w.moved.connect(self._on_moved)
 

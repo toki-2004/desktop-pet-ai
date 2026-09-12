@@ -481,6 +481,7 @@ class PetWindow(QWidget):
     chatInputRequested = pyqtSignal(str)
     imageInputRequested = pyqtSignal(str)
     historyRequested = pyqtSignal()
+    webchatUrlRequested = pyqtSignal()
     balanceVisibleRequested = pyqtSignal(bool)
     moved = pyqtSignal(QPoint)
 
@@ -990,6 +991,7 @@ class PetWindow(QWidget):
         act_balance.triggered.connect(self.balanceVisibleRequested.emit)
         act_hist = menu.addAction("聊天记录…")
         act_hist.triggered.connect(self.historyRequested.emit)
+        menu.addAction("复制聊天记录网页地址", self.webchatUrlRequested.emit)
         menu.addAction("发送图片…", self._pick_image)
         act_autostart = menu.addAction("开机自启")
         act_autostart.setCheckable(True)
