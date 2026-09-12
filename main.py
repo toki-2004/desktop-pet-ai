@@ -352,6 +352,8 @@ class DesktopPet:
         if not bool(self.config.get("webchat_enabled", True)):
             petlog.log("webchat disabled by config")
             return
+        # 图片存到程序目录（而不是 %TEMP%）：重启后网页还能回看以前发过的图
+        webchat.MEDIA_DIR = os.path.join(PROJECT_DIR, "web_images")
         token = str(self.config.get("webchat_token") or "")
         if not token:
             token = os.urandom(4).hex()
@@ -485,7 +487,10 @@ class DesktopPet:
 
     def _on_user_image(self, path):
         """发图片给 AI：文字提示 + 图片走同一条链路（内置服务会自动上传到网页版识图）。"""
-        self.history.append("user", "（发送了一张图片：%s）" % os.path.basename(path))
+        name = os.path.basename(path)
+        # 存一份到 web_images/：这样手机网页上能直接把图渲染出来（只存文件名进历史）
+        stored = webchat.store_image(path) if self.webchat is not None else ""
+        self.history.append("user", "（发送了一张图片：%s）" % name, image=stored)
         self.window.show_float_text("发送图片成功", "#22C55E")
         self._ask_ai(
             [{"role": "user", "content": "（我发了一张图片，看看它，随口说点什么）"}],

@@ -45,7 +45,8 @@ zero-cost chatting with no API key at all.
    button** (same path as clicking the pet: animation + AI reaction + affection);
    the log refreshes every 2 seconds, so replies show up without reloading. The
    **图片** button sends a photo/gallery image to the pet (same as dragging an
-   image onto the desktop pet; big photos are downscaled on the phone first).
+   image onto the desktop pet; big photos are downscaled on the phone first), and
+   sent images are rendered inline in the log (tap for the full picture).
    The URL carries an access token; right-click the pet to copy it.
 7. **Work-status awareness**: after binding a balance account, work state
    (working / idle / topped up) is derived from balance changes and injected
@@ -114,7 +115,8 @@ cloud preset — see "AI settings".)
   "摸头" (head-pat) button identical to clicking the pet, and its input box sends
   messages exactly like the pet's own input box. Next to it a "图片" button sends
   a photo/gallery image, exactly like dropping an image on the desktop pet
-  (large photos are downscaled on the phone before upload). The `?k=…` in the URL is the
+  (large photos are downscaled on the phone before upload); sent images show up in
+  the log itself (tap to open the original). The `?k=…` in the URL is the
   access token (generated on first run, stored in `config.json`); set
   `webchat_enabled` to `false` to turn the page off.
 - **Head pat**: left-click the pet (animation + AI reaction); press-and-drag to

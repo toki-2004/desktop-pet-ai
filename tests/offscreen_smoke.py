@@ -1145,6 +1145,36 @@ _code, _body = _http(_wc_base + "/api/image?k=tok123",
 check("webchat rejects a non-image upload", _code == 400 and not _body.get("ok"), (_code, _body))
 _code, _body = _http(_wc_base + "/api/image?k=tok123", data=b"{}")
 check("webchat rejects an empty upload", _code == 400, (_code, _body))
+
+# 图片要在网页里渲染出来：桌面端发图也会存一份到 web_images/，网页用 /api/media/<name> 取
+_media_saved = webchat_mod.MEDIA_DIR
+webchat_mod.MEDIA_DIR = os.path.join(tmp, "web_images")
+_stored = webchat_mod.store_image(send_png)
+check("sent images are copied into the media folder",
+      bool(_stored) and os.path.exists(os.path.join(webchat_mod.MEDIA_DIR, _stored)),
+      _stored)
+check("media folder copy matches the source bytes",
+      open(os.path.join(webchat_mod.MEDIA_DIR, _stored), "rb").read() == _img_bytes)
+with urllib.request.urlopen(_wc_base + "/api/media/" + _stored + "?k=tok123", timeout=5) as _r:
+    _served = _r.read()
+    _ctype = _r.headers.get("Content-Type")
+check("webchat serves the image bytes for <img>",
+      _served == _img_bytes and _ctype == "image/png", (_ctype, len(_served)))
+_code, _body = _http(_wc_base + "/api/media/nothere.png?k=tok123")
+check("webchat 404s a missing image", _code == 404, (_code, _body))
+_code, _body = _http(_wc_base + "/api/media/..%2F..%2Fconfig.json?k=tok123")
+check("webchat refuses path traversal in media", _code == 404, (_code, _body))
+_wc_hist_img = ChatHistory(os.path.join(tmp, "hist_web_img.json"), 20)
+if os.path.exists(os.path.join(tmp, "hist_web_img.json")):
+    os.remove(os.path.join(tmp, "hist_web_img.json"))
+_wc_hist_img = ChatHistory(os.path.join(tmp, "hist_web_img.json"), 20)
+_wc_hist_img.append("user", "（发送了一张图片：x.png）", image=_stored)
+wc.history = _wc_hist_img
+_code, _body = _http(_wc_base + "/api/history?k=tok123")
+check("history carries the image name for rendering",
+      _body["messages"][-1].get("image") == _stored, _body["messages"][-1])
+wc.history = wc_hist
+webchat_mod.MEDIA_DIR = _media_saved
 with urllib.request.urlopen(_wc_base + "/?k=tok123", timeout=5) as _r:
     _page = _r.read().decode("utf-8")
 check("webchat serves the page with pat + live refresh",
@@ -1152,6 +1182,8 @@ check("webchat serves the page with pat + live refresh",
       and "setInterval" in _page)
 check("webchat page offers image upload",
       "/api/image" in _page and 'accept="image/*"' in _page and "shrink(" in _page)
+check("webchat page renders images inline",
+      "/api/media/" in _page and 'className = \'pic\'' in _page and ".pic{" in _page)
 check("webchat keeps affection/pat bar pinned to the top",
       "#head{position:fixed;left:0;right:0;top:0" in _page
       and "position:sticky" not in _page and "#list{padding:56px" in _page)

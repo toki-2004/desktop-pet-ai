@@ -8,6 +8,7 @@
 import json
 import base64
 import os
+import shutil
 import socket
 import tempfile
 import threading
@@ -20,12 +21,16 @@ from PyQt5.QtCore import QObject, pyqtSignal
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 IMAGE_MIME_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg",
                   "image/webp": ".webp", "image/gif": ".gif"}
+IMAGE_EXT_MIME = {v: k for k, v in IMAGE_MIME_EXT.items()}
+IMAGE_EXT_MIME[".jpeg"] = "image/jpeg"
 MAX_IMAGE_BYTES = 20 * 1024 * 1024   # 手机照片压过之后远小于这个数
-IMG_DIR = os.path.join(tempfile.gettempdir(), "pet_webchat_img")
+MAX_KEEP_IMAGES = 200                # 网页要能回看图片：留最近 200 张，其余按时间清
+# 发出去的图都存这里（main 会改成程序目录下的 web_images，方便随 exe 一起留存）
+MEDIA_DIR = os.path.join(tempfile.gettempdir(), "pet_webchat_img")
 
 
 def save_data_url(data_url):
-    """data:image/...;base64,... → 临时图片文件路径（给桌宠那条发图链路用）。"""
+    """data:image/...;base64,... → 存到 MEDIA_DIR 的图片路径（给桌宠那条发图链路用）。"""
     head, _, payload = str(data_url).partition(",")
     if not payload or not head.startswith("data:image/"):
         return ""
@@ -39,22 +44,58 @@ def save_data_url(data_url):
         return ""
     if not raw or len(raw) > MAX_IMAGE_BYTES:
         return ""
-    os.makedirs(IMG_DIR, exist_ok=True)
+    os.makedirs(MEDIA_DIR, exist_ok=True)
     _prune_old_images()
-    path = os.path.join(IMG_DIR, "web_%d%s" % (int(time.time() * 1000), ext))
+    path = os.path.join(MEDIA_DIR, "web_%d%s" % (int(time.time() * 1000), ext))
     with open(path, "wb") as f:
         f.write(raw)
     return path
 
 
-def _prune_old_images(max_age_s=6 * 3600):
-    """清掉超过 max_age_s 的临时图（ponytail: 只按时间清，不做引用计数）。"""
+def store_image(src_path):
+    """把要发出去的图复制进 MEDIA_DIR，返回文件名（网页据此 <img> 渲染）。
+    已经在 MEDIA_DIR 里的（网页上传的）直接返回文件名，不重复复制。
+    ponytail: 只保留最近 MAX_KEEP_IMAGES 张，不做引用计数。"""
     try:
-        now = time.time()
-        for name in os.listdir(IMG_DIR):
-            p = os.path.join(IMG_DIR, name)
-            if now - os.path.getmtime(p) > max_age_s:
-                os.remove(p)
+        src = os.path.abspath(str(src_path))
+        if not os.path.isfile(src):
+            return ""
+        ext = os.path.splitext(src)[1].lower()
+        if ext not in IMAGE_EXT_MIME:
+            return ""
+        if os.path.dirname(src) == os.path.abspath(MEDIA_DIR):
+            return os.path.basename(src)
+        os.makedirs(MEDIA_DIR, exist_ok=True)
+        name = "%d_%s" % (int(time.time() * 1000), _safe_name(os.path.basename(src)))
+        shutil.copyfile(src, os.path.join(MEDIA_DIR, name))
+        _prune_old_images()
+        return name
+    except OSError:
+        return ""
+
+
+def media_path(name):
+    """MEDIA_DIR 里某个文件的安全路径（挡住路径穿越）；不存在返回空串。"""
+    name = os.path.basename(str(name or ""))
+    if not name or name != str(name or ""):
+        return ""
+    path = os.path.join(MEDIA_DIR, name)
+    return path if os.path.isfile(path) else ""
+
+
+def _safe_name(name):
+    keep = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    cleaned = "".join(c for c in str(name) if c in keep).strip() or "image"
+    return cleaned[-60:]
+
+
+def _prune_old_images():
+    """只留最近 MAX_KEEP_IMAGES 张（多了按修改时间删老的）。"""
+    try:
+        files = [os.path.join(MEDIA_DIR, n) for n in os.listdir(MEDIA_DIR)]
+        files = [p for p in files if os.path.isfile(p)]
+        for p in sorted(files, key=os.path.getmtime)[:-MAX_KEEP_IMAGES]:
+            os.remove(p)
     except OSError:
         pass
 
@@ -87,6 +128,8 @@ PAGE = """<!doctype html>
  .me{background:#2b6cb0;margin-left:auto}
  .pet{background:#232b38}
  .t{font-size:12px;color:#93a1b5;margin-bottom:2px}
+ .pic{display:block;max-width:100%;max-height:320px;margin-top:6px;border-radius:8px;
+   background:#0d1117}
  #bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px;
    background:#161b25;border-top:1px solid #263041}
  #txt{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #33405a;
@@ -135,6 +178,19 @@ function render(msgs, keepPos){
     var b = document.createElement('div');
     b.textContent = m.content || '';
     d.appendChild(b);
+    if (m.image) {
+      // 图片消息：直接渲染出来（服务端 /api/media/<文件名> 只认这个目录里的文件）
+      var a = document.createElement('a');
+      a.href = api('/api/media/' + encodeURIComponent(m.image));
+      a.target = '_blank';
+      var im = document.createElement('img');
+      im.className = 'pic';
+      im.src = a.href;
+      im.alt = '图片';
+      im.loading = 'lazy';
+      a.appendChild(im);
+      d.appendChild(a);
+    }
     frag.appendChild(d);
   });
   list.appendChild(frag);
@@ -375,6 +431,22 @@ class WebChat(QObject):
                     return
                 if parsed.path == "/api/state":
                     self._send(200, json.dumps(owner.state(), ensure_ascii=False))
+                    return
+                if parsed.path.startswith("/api/media/"):
+                    name = parsed.path[len("/api/media/"):]
+                    path = media_path(name)
+                    if not path:
+                        self._send(404, json.dumps({"error": "no such image"}))
+                        return
+                    try:
+                        with open(path, "rb") as f:
+                            data = f.read()
+                    except OSError:
+                        self._send(404, json.dumps({"error": "no such image"}))
+                        return
+                    ctype = IMAGE_EXT_MIME.get(os.path.splitext(path)[1].lower(),
+                                               "application/octet-stream")
+                    self._send(200, data, ctype)
                     return
                 self._send(404, json.dumps({"error": "not found"}))
 

@@ -50,12 +50,16 @@ class ChatHistory(QObject):
         except Exception:
             pass
 
-    def append(self, role, content, kind="chat"):
+    def append(self, role, content, kind="chat", image=""):
         self.rev += 1
-        self.items.append({
+        item = {
             "role": role, "content": content,
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": kind,
-        })
+        }
+        if image:
+            # 网页要用 <img> 渲染发出去的图：只存文件名（图片本身在 web_images/）
+            item["image"] = image
+        self.items.append(item)
         self.items = self.items[-self.max_n:]
         self.save()
         self.changed.emit()
