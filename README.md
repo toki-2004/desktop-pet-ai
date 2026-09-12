@@ -117,7 +117,7 @@ python main.py
 ## 开发与测试
 
 ```bash
-python tests/offscreen_smoke.py   # 离屏自检（172 项）
+python tests/offscreen_smoke.py   # 离屏自检（174 项）
 PET_SMOKE=1 python main.py        # 冒烟，exit=0 通过
 ```
 

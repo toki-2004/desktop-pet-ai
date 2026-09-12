@@ -96,6 +96,9 @@ class AIClient(QObject):
         # 可能一两分钟不出结果，此时并没有短路，给足时间别过早弹兜底文本。
         read_timeout = float(self.config.get("ai_timeout_s", 300) or 300)
         try:
+            # 与 vendor 的 web2api.log 对时间线用：出问题能看出请求是什么时候发出去的
+            petlog.log("ai request start: model=%s msgs=%d image=%s"
+                       % (model, len(messages), bool(image)))
             r = requests.post(
                 base + "/chat/completions",
                 json={"model": model, "messages": messages},
@@ -104,6 +107,7 @@ class AIClient(QObject):
             )
             r.raise_for_status()
             text = strip_citations(r.json()["choices"][0]["message"]["content"])
+            petlog.log("ai request ok: %d chars" % len(text))
             self.reply.emit(text, True, meta)
         except requests.Timeout as e:
             # 超时只代表"还没回"：会话大概率仍完好（厂商侧可能已把这条消息
@@ -114,13 +118,17 @@ class AIClient(QObject):
             # 服务端给了明确错误码（如内置 AI 登录态失效 login_required）时带上，
             # 让上层给出"去重新绑定"这类可操作提示，而不是笼统的兜底文本
             code = ""
+            message = ""
             try:
-                code = str(((e.response.json() or {}).get("error") or {}).get("code") or "")
+                err = (e.response.json() or {}).get("error") or {}
+                code = str(err.get("code") or "")
+                message = str(err.get("message") or "")
             except Exception:
-                code = ""
+                pass
             petlog.log("ai request failed: HTTP %s %s"
                        % (getattr(e.response, "status_code", "?"), code))
-            self.reply.emit("", False, dict(meta or {}, error_code=code))
+            self.reply.emit("", False, dict(meta or {}, error_code=code,
+                                            error_message=message))
         except Exception as e:
             petlog.log("ai request failed: %s" % e)
             self.reply.emit("", False, meta)

@@ -1064,6 +1064,18 @@ app.processEvents()
 check("login failure balloon points at the rebind button",
       pet2._balloon is not None and "重新绑定" in pet2._balloon._text,
       pet2._balloon._text if pet2._balloon else None)
+pet2._last_balloon_at = 0.0
+pet2._on_ai_reply("", False, {"kind": "chat", "error_code": "empty_response"})
+app.processEvents()
+check("empty response balloon suggests retrying",
+      pet2._balloon is not None and "再说一次" in pet2._balloon._text,
+      pet2._balloon._text if pet2._balloon else None)
+pet2._last_balloon_at = 0.0
+pet2._on_ai_reply("", False, {"kind": "chat", "timeout": True})
+app.processEvents()
+check("timeout balloon mentions the 5 minute wait",
+      pet2._balloon is not None and "5 分钟" in pet2._balloon._text,
+      pet2._balloon._text if pet2._balloon else None)
 
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")

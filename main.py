@@ -278,6 +278,21 @@ class SelfTalkMonitor(QObject):
 
 class DesktopPet:
     STARTUP_AI_DELAY_S = 10.0  # 重启后推迟首条 AI 请求，让"内置 AI 已就绪"先弹出
+    # 失败提示：能说清原因就说清（比一律"短路了"有用得多）
+    FAIL_HINTS = {
+        "login_required":
+            "内置 AI 的 DeepSeek 登录态失效了，去「设置 → AI」点「重新绑定」重新登录一下吧；"
+            "旧登录档案会备份，聊天记录不受影响。",
+        "deepseek_not_logged_in":
+            "内置 AI 好像没进到对话界面，去「设置 → AI」点「重新绑定」重新登录一下吧。",
+        "empty_response":
+            "这次没拿到回复内容（网页端偶尔会这样），等一下再说一次试试？",
+        "deepseek_timeout":
+            "这条回复等了 5 分钟还没生成完，我先不等了；可以再问一次。",
+        "upload_timeout": "图片上传超时了，稍后再发一次试试。",
+        "upload_not_available": "这个账号好像不让上传图片，先发文字试试。",
+        "upload_failed": "图片上传失败了，稍后再发一次试试。",
+    }
 
     def __init__(self):
         self.config = Config(CONFIG_PATH)
@@ -439,19 +454,21 @@ class DesktopPet:
             # 读网页/思考，会话没断，重注入只会反复污染对话、让回复变刻板。
             if not meta.get("timeout"):
                 self._convo_primed = False
-            if meta.get("error_code") in ("login_required", "deepseek_not_logged_in"):
-                # 内置免费 AI 登录态失效：给可操作的提示，别只说"短路了"
-                self._show_balloon(
-                    "内置 AI 的 DeepSeek 登录态失效了，去「设置 → AI」点「重新绑定」重新登录一下吧；"
-                    "旧登录档案会备份，聊天记录不受影响。")
-                return
             # 兜底文本只作为连接波动提示弹气泡，不计入聊天记录
             if bool(self.config.get("ai_fallback_enabled", True)):
-                self._show_balloon(
-                    str(self.config.get("ai_fallback_text", "唔……我现在有点短路了")))
+                self._show_balloon(self._failure_hint(meta))
             return
         self.history.append("assistant", text, kind=kind)
         self._show_balloon(text)
+
+    def _failure_hint(self, meta):
+        """失败提示：超时/网页端空响应/登录失效各给各的说法。"""
+        if meta.get("timeout"):
+            return "这条回复超过 5 分钟还没出来，我先不等了；等一下再问一次吧。"
+        code = str(meta.get("error_code") or "")
+        if code in self.FAIL_HINTS:
+            return self.FAIL_HINTS[code]
+        return str(self.config.get("ai_fallback_text", "唔……我现在有点短路了"))
 
     def _open_history(self):
         dlg = HistoryDialog(self.history)

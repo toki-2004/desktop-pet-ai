@@ -28,3 +28,4 @@ chat_history.json.bak-*
 # vendor 仅入库 DeepSeekWeb2API 源码（src/配置/package 清单）；
 # node 运行时、node_modules、登录态 data、tmp 由 vendor 内 .gitignore 排除
 vendor/DeepSeekWeb2API/*.bat
+vendor/DeepSeekWeb2API/web2api.log

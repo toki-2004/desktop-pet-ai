@@ -121,11 +121,22 @@ def _run_node(args, new_console):
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.CREATE_NEW_CONSOLE if new_console else subprocess.CREATE_NO_WINDOW
+    # 后台服务的输出落盘（以前直接 DEVNULL）：出问题只有一句"短路了"，
+    # 完全看不到是登录失效、网页端空响应还是真超时，没法排查
+    out = None
+    if not new_console:
+        try:
+            log_path = os.path.join(VENDOR_DIR, "web2api.log")
+            if os.path.exists(log_path) and os.path.getsize(log_path) > 1024 * 1024:
+                os.remove(log_path)
+            out = open(log_path, "a", encoding="utf-8", errors="replace")
+        except OSError:
+            out = None
     return subprocess.Popen(
         [_node_exe(), os.path.join(VENDOR_DIR, "src", "index.js")] + args,
         cwd=VENDOR_DIR, creationflags=flags,
-        stdout=subprocess.DEVNULL if not new_console else None,
-        stderr=subprocess.DEVNULL if not new_console else None,
+        stdout=out if out is not None else (None if new_console else subprocess.DEVNULL),
+        stderr=subprocess.STDOUT if out is not None else (None if new_console else subprocess.DEVNULL),
     )
 
 

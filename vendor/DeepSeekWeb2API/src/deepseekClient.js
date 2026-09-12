@@ -178,13 +178,18 @@ export class DeepSeekClient {
         return;
       }
       if (await this.loginPageVisible()) {
-        this.loggedIn = false;
-        throw new ApiError(
-          'DeepSeek 登录态已失效：页面停在登录界面，请在设置页点"重新绑定"重新登录。',
-          401,
-          'login_required',
-          'authentication_error'
-        );
+        // 页面加载过程中可能短暂呈现登录态（文案命中但没真掉登录），
+        // 隔 2 秒再确认一次，避免把正常请求误判成登录失效
+        await delay(2000);
+        if (await this.loginPageVisible()) {
+          this.loggedIn = false;
+          throw new ApiError(
+            'DeepSeek 登录态已失效：页面停在登录界面，请在设置页点"重新绑定"重新登录。',
+            401,
+            'login_required',
+            'authentication_error'
+          );
+        }
       }
       await delay(500);
     }
@@ -201,11 +206,11 @@ export class DeepSeekClient {
   async loginPageVisible() {
     const url = this.page.url();
     if (/sign[_-]?in|log[_-]?in/i.test(url)) return true;
+    // 只认"有密码输入框且没有输入框"：光看页面文案在加载/首屏可能误报，
+    // 误报的代价是正常请求被当成登录失效（用户只看到突然失败）
     return this.page.evaluate(() => {
       if (document.querySelector('textarea, [contenteditable="true"]')) return false;
-      const hasPassword = document.querySelectorAll('input[type="password"]').length > 0;
-      const text = (document.body?.innerText || '').slice(0, 1000);
-      return hasPassword || /(登录|登入|Log ?in|Sign ?in)/i.test(text);
+      return document.querySelectorAll('input[type="password"]').length > 0;
     }).catch(() => false);
   }
 

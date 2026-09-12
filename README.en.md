@@ -150,7 +150,7 @@ backup). Common keys:
 ## Development & testing
 
 ```bash
-python tests/offscreen_smoke.py   # offscreen self-check (172 checks)
+python tests/offscreen_smoke.py   # offscreen self-check (174 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
 ```
 
