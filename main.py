@@ -360,9 +360,13 @@ class DesktopPet:
             self.history,
             port=int(self.config.get("webchat_port", 8848) or 8848),
             token=token,
-            bind=str(self.config.get("webchat_bind", "0.0.0.0") or "0.0.0.0"))
+            bind=str(self.config.get("webchat_bind", "0.0.0.0") or "0.0.0.0"),
+            state_fn=lambda: {"affection": self.affection.value(),
+                              "tier": self.affection.tier()})
         # 收到的消息走 window.chatInputRequested：与在输入框回车完全一致
         self.webchat.chatRequested.connect(self.window.chatInputRequested.emit)
+        # 网页"摸头"走 window.do_head_pat：与鼠标单击桌宠完全一致（GIF + AI 反应 + 好感）
+        self.webchat.patRequested.connect(self.window.do_head_pat)
         if self.webchat.start():
             petlog.log("webchat listening: %s" % self.webchat.url())
             QApplication.instance().aboutToQuit.connect(self.webchat.stop)

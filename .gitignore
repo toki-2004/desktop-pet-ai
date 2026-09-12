@@ -30,10 +30,6 @@ chat_history.json.bak-*
 vendor/DeepSeekWeb2API/*.bat
 vendor/DeepSeekWeb2API/web2api.log
 
-# Android 构建产物（源码入库，产物不入库）
-android/.gradle/
-android/build/
-android/app/build/
-android/local.properties
-android/.idea/
+# 聊天网页 APK（自用工具，整目录与产物都不入库）
+android/
 *.apk

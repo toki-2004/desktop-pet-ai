@@ -757,6 +757,15 @@ class PetWindow(QWidget):
         if path:
             self.imageInputRequested.emit(path)
 
+    def do_head_pat(self):
+        """摸头一次：播放一遍互动 GIF + 发出 petHeadRequested。
+        鼠标单击（本地）与网页"摸头"按钮共用这一处，保证两边效果一致。"""
+        if not self.config.get("pet_head_enabled", True):
+            return False
+        self._play_interact_once()
+        self.petHeadRequested.emit()
+        return True
+
     def dragEnterEvent(self, event):
         if image_path_from_mime(event.mimeData()):
             event.acceptProposedAction()
@@ -782,8 +791,7 @@ class PetWindow(QWidget):
             if self._drag_pos is not None:
                 # 单击（按下后未拖动）= 播放一遍互动 GIF + 换一条摸头语录；拖动不触发
                 if not self._press_moved and self.config.get("pet_head_enabled", True):
-                    self._play_interact_once()
-                    self.petHeadRequested.emit()
+                    self.do_head_pat()
                 # 位置在拖动结束时落盘一次：moveEvent 每像素写盘的旧做法会高频重写 config.json
                 self.config.set("pet_pos", [self.x(), self.y()])
         self._press_moved = False

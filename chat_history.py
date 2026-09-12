@@ -31,6 +31,7 @@ class ChatHistory(QObject):
         self.path = path
         self.max_n = max(10, int(max_n or 200))
         self.items = []
+        self.rev = 0  # 每次 append +1：网页端据此判断"有新消息"（条数封顶后长度不再变）
         self.load()
 
     def load(self):
@@ -50,6 +51,7 @@ class ChatHistory(QObject):
             pass
 
     def append(self, role, content, kind="chat"):
+        self.rev += 1
         self.items.append({
             "role": role, "content": content,
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": kind,

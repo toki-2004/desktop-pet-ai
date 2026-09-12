@@ -20,11 +20,15 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>桌宠聊天记录</title>
 <style>
- html,body{margin:0;height:100%%;background:#10141c;color:#e8ecf3;
+ html,body{margin:0;height:100%;background:#10141c;color:#e8ecf3;
    font:16px/1.5 "Microsoft YaHei",system-ui,sans-serif}
- #head{padding:10px 14px;background:#161b25;position:sticky;top:0;
-   border-bottom:1px solid #263041;font-weight:600}
- #head small{color:#8b98ad;font-weight:400}
+ #head{position:sticky;top:0;background:#161b25;border-bottom:1px solid #263041;
+   padding:8px 14px;display:flex;align-items:center;gap:10px}
+ #head .t{font-weight:600}
+ #head .a{margin-left:auto;color:#ffd166;font-weight:600}
+ #pat{padding:8px 14px;border:0;border-radius:10px;background:#e8590c;color:#fff;
+   font-size:15px;font-weight:600}
+ #pat:disabled{background:#5a4634}
  #list{padding:12px 14px 90px}
  .m{max-width:46em;margin:0 0 10px;padding:8px 12px;border-radius:12px;
    white-space:pre-wrap;word-break:break-word}
@@ -39,25 +43,35 @@ PAGE = """<!doctype html>
    color:#fff;font-size:16px}
  #send:disabled{background:#3a465c}
  #hint{position:fixed;left:0;right:0;bottom:66px;text-align:center;color:#8b98ad;
-   font-size:13px}
+   font-size:13px;pointer-events:none}
+ #new{position:fixed;left:50%;transform:translateX(-50%);bottom:74px;display:none;
+   padding:6px 14px;border-radius:99px;background:#3d8bff;color:#fff;font-size:14px}
 </style></head><body>
-<div id="head">桌宠聊天记录 <small id="cnt"></small></div>
+<div id="head">
+  <span class="t">桌宠聊天</span><small id="cnt" style="color:#8b98ad"></small>
+  <span class="a" id="aff">好感 …</span>
+  <button id="pat">摸头</button>
+</div>
 <div id="list"></div>
 <div id="hint"></div>
+<div id="new">有新消息 ↓</div>
 <div id="bar"><input id="txt" placeholder="跟桌宠说点什么…" autocomplete="off">
 <button id="send">发送</button></div>
 <script>
 var K = new URLSearchParams(location.search).get('k') || '';
 var api = function(p){ return p + (K ? '?k=' + encodeURIComponent(K) : ''); };
-var seen = -1, waiting = 0;
-function esc(s){ return s; }
-function render(msgs){
+var rev = -1, waiting = 0, tierZh = {high:'高', mid:'一般', low:'低'};
+function nearBottom(){
+  return document.body.scrollHeight - window.scrollY - window.innerHeight < 60;
+}
+function render(msgs, keepPos){
   var list = document.getElementById('list');
+  var atBottom = !keepPos || nearBottom();
   list.textContent = '';
+  var frag = document.createDocumentFragment();
   msgs.forEach(function(m){
-    var who = m.role === 'user' ? 'me' : 'pet';
     var d = document.createElement('div');
-    d.className = 'm ' + who;
+    d.className = 'm ' + (m.role === 'user' ? 'me' : 'pet');
     var t = document.createElement('div');
     t.className = 't';
     t.textContent = (m.ts || '') + ' ' + (m.role === 'user' ? '我' : '桌宠');
@@ -65,19 +79,29 @@ function render(msgs){
     var b = document.createElement('div');
     b.textContent = m.content || '';
     d.appendChild(b);
-    list.appendChild(d);
+    frag.appendChild(d);
   });
-  document.getElementById('cnt').textContent = '共 ' + msgs.length + ' 条';
-  window.scrollTo(0, document.body.scrollHeight);
+  list.appendChild(frag);
+  document.getElementById('cnt').textContent = msgs.length + ' 条';
+  var last = msgs.length ? msgs[msgs.length - 1] : null;
+  var replied = !!last && last.role !== 'user';
+  if (replied) { waiting = 0; document.getElementById('send').disabled = false; }
+  document.getElementById('hint').textContent = waiting ? '已发送，桌宠思考中…' : '';
+  if (atBottom) { window.scrollTo(0, document.body.scrollHeight);
+                  document.getElementById('new').style.display = 'none'; }
+  else if (keepPos) { document.getElementById('new').style.display = 'block'; }
 }
-function tick(){
+function tick(first){
   fetch(api('/api/history')).then(function(r){ return r.json(); }).then(function(d){
     if (!d.messages) { document.getElementById('hint').textContent = d.error || 'token 不对'; return; }
-    if (d.messages.length !== seen) { seen = d.messages.length; render(d.messages); }
-    if (waiting && d.messages.length && d.messages[d.messages.length-1].role !== 'user') {
-      waiting = 0;
+    document.getElementById('aff').textContent =
+        '好感 ' + (d.affection === null || d.affection === undefined ? '…' : Math.round(d.affection))
+        + (tierZh[d.tier] ? ' · ' + tierZh[d.tier] : '');
+    if (d.rev !== rev) {
+      var grew = rev >= 0 && d.rev !== rev;
+      rev = d.rev;
+      render(d.messages, grew);   // 老记录不再跳到底，出新消息才给提示
     }
-    document.getElementById('hint').textContent = waiting ? '已发送，桌宠思考中…' : '';
     document.getElementById('send').disabled = !!waiting;
   }).catch(function(){ document.getElementById('hint').textContent = '连不上桌宠'; });
 }
@@ -85,14 +109,45 @@ function send(){
   var el = document.getElementById('txt'); var text = el.value.trim();
   if (!text) return;
   el.value = ''; waiting = 1;
+  // 先本地显示，别等下一轮轮询（发送后立刻能看到自己发的话）
+  var list = document.getElementById('list');
+  var box = document.createElement('div');
+  box.className = 'm me';
+  var t = document.createElement('div');
+  t.className = 't';
+  t.textContent = '刚刚 我';
+  box.appendChild(t);
+  var body = document.createElement('div');
+  body.textContent = text;
+  box.appendChild(body);
+  list.appendChild(box);
+  document.getElementById('hint').textContent = '已发送，桌宠思考中…';
+  window.scrollTo(0, document.body.scrollHeight);
   fetch(api('/api/chat'), {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({text: text})}).then(function(r){ return r.json(); })
     .then(function(d){ if (d.error) { waiting = 0; document.getElementById('hint').textContent = d.error; } });
 }
+function pat(){
+  var b = document.getElementById('pat');
+  b.disabled = true;
+  fetch(api('/api/pat'), {method:'POST'}).then(function(r){ return r.json(); })
+    .then(function(d){ if (d.error) document.getElementById('hint').textContent = d.error; })
+    .catch(function(){ document.getElementById('hint').textContent = '摸不到桌宠'; })
+    .then(function(){ setTimeout(function(){ tick(false); }, 400); })  // 摸完刷新好感
+    .then(function(){ setTimeout(function(){ b.disabled = false; }, 600); });
+}
 document.getElementById('send').onclick = send;
+document.getElementById('pat').onclick = pat;
+document.getElementById('new').onclick = function(){
+  window.scrollTo(0, document.body.scrollHeight);
+  this.style.display = 'none';
+};
+window.addEventListener('scroll', function(){
+  if (nearBottom()) document.getElementById('new').style.display = 'none';
+});
 document.getElementById('txt').addEventListener('keydown', function(e){
   if (e.key === 'Enter') send(); });
-setInterval(tick, 2000); tick();
+setInterval(function(){ tick(false); }, 2000); tick(true);
 </script></body></html>
 """
 
@@ -113,13 +168,15 @@ class WebChat(QObject):
     """history 用 ChatHistory；chatRequested 由主线程接到桌宠输入框那条链路。"""
 
     chatRequested = pyqtSignal(str)
+    patRequested = pyqtSignal()   # 网页点"摸头"：走桌宠单击摸头同一条链路
 
-    def __init__(self, history, port=8848, token="", bind="0.0.0.0"):
+    def __init__(self, history, port=8848, token="", bind="0.0.0.0", state_fn=None):
         super().__init__()
         self.history = history
         self.port = int(port)
         self.token = str(token or "")
         self.bind = str(bind or "0.0.0.0")
+        self.state_fn = state_fn      # 主线程提供：好感值/档位
         self.error = ""
         self._httpd = None
         self._thread = None
@@ -157,6 +214,17 @@ class WebChat(QObject):
         except Exception:
             return []
 
+    def state(self):
+        try:
+            data = dict(self.state_fn() or {}) if self.state_fn else {}
+        except Exception:
+            data = {}
+        return {
+            "rev": int(getattr(self.history, "rev", 0)),
+            "affection": data.get("affection"),
+            "tier": data.get("tier"),
+        }
+
     def _make_handler(self):
         owner = self
 
@@ -193,8 +261,12 @@ class WebChat(QObject):
                     self._send(200, PAGE, "text/html; charset=utf-8")
                     return
                 if parsed.path == "/api/history":
-                    self._send(200, json.dumps({"messages": owner.messages()},
-                                               ensure_ascii=False))
+                    payload = owner.state()
+                    payload["messages"] = owner.messages()
+                    self._send(200, json.dumps(payload, ensure_ascii=False))
+                    return
+                if parsed.path == "/api/state":
+                    self._send(200, json.dumps(owner.state(), ensure_ascii=False))
                     return
                 self._send(404, json.dumps({"error": "not found"}))
 
@@ -205,6 +277,12 @@ class WebChat(QObject):
                     self._send(401, json.dumps({"error": "token 不对"}))
                     return
                 if parsed.path != "/api/chat":
+                    if parsed.path == "/api/pat":
+                        owner.patRequested.emit()   # 跨线程 → 主线程摸头
+                        payload = owner.state()
+                        payload["ok"] = True
+                        self._send(200, json.dumps(payload, ensure_ascii=False))
+                        return
                     self._send(404, json.dumps({"error": "not found"}))
                     return
                 try:
