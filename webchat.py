@@ -162,13 +162,22 @@ var api = function(p){ return p + (K ? '?k=' + encodeURIComponent(K) : ''); };
 var rev = -1, waiting = 0, tierZh = {high:'高', mid:'一般', low:'低'};
 /* follow：是否跟着最新消息走。
    true  = 每来一条新消息就翻到底（默认，也是"我自己发消息"之后的状态）
-   false = 我正在往上翻旧记录：不打扰，只提示"有新消息 ↓"，滑到底部自动恢复 */
+   false = 我已经往上翻过 3 条以上：不打扰，只提示"有新消息 ↓"，回到底部附近自动恢复 */
 var follow = true, ignoreScrollUntil = 0;
+var KEEP_FOLLOW_MAX_BELOW = 3;   // 视口下方不超过 3 条 → 仍算"在看最新"，照常跳
 function scrollHeight(){
   return Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
 }
-function nearBottom(){
-  return scrollHeight() - window.scrollY - window.innerHeight < 60;
+function messagesBelow(){
+  // 视口下方还有几条消息（从最后一条往前数，遇到第一条完整可见的就停）
+  var items = document.querySelectorAll('#list .m');
+  var limit = window.innerHeight + 4;
+  var n = 0;
+  for (var i = items.length - 1; i >= 0; i--) {
+    if (items[i].getBoundingClientRect().bottom > limit) n++;
+    else break;
+  }
+  return n;
 }
 function toBottom(){
   ignoreScrollUntil = Date.now() + 400;   // 自己滚动引起的 scroll 事件别当成"用户在翻记录"
@@ -321,11 +330,11 @@ document.getElementById('new').onclick = function(){
 };
 window.addEventListener('scroll', function(){
   if (Date.now() < ignoreScrollUntil) return;
-  if (nearBottom()) {                 // 滑回底部 → 恢复"跟着最新"
+  if (messagesBelow() <= KEEP_FOLLOW_MAX_BELOW) {   // 还在最新附近 → 继续跟
     follow = true;
     document.getElementById('new').style.display = 'none';
   } else {
-    follow = false;                   // 手动往上翻 → 不打扰，只提示有新消息
+    follow = false;                   // 往上翻超过 3 条 → 不打扰，只提示有新消息
   }
 });
 if (window.visualViewport) {          // 手机键盘弹收会改视口，跟着最新时保持贴底
