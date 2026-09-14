@@ -43,6 +43,17 @@ if (config.loginMode) {
   client.checkSession()
     .then(ok => logger.info('session check finished', { loggedIn: ok }))
     .catch(err => logger.warn('session check error', { error: err.message }));
+  // 闲置就把浏览器关掉：无头 Chromium 一套 8 个进程、几百 MB，桌宠大部分时间用不到它；
+  // 下次请求会按需重开，并回到"本次进程自己创建的那段对话"（见 ensureConversationPage）。
+  if (config.browserIdleMs > 0) {
+    const idleTimer = setInterval(() => {
+      if (!client.context || client.busy || mutex.size > 0) return;
+      if (Date.now() - client.lastUse < config.browserIdleMs) return;
+      logger.info('closing idle browser', { idleSeconds: Math.round(config.browserIdleMs / 1000) });
+      client.close().catch(() => {});
+    }, 60000);
+    idleTimer.unref?.();
+  }
 }
 
 async function shutdown() {
@@ -60,7 +71,8 @@ async function handleRequest(req, res) {
       if (parsedUrl.searchParams.get('check') === '1') {
         await client.checkSession().catch(() => {});
       }
-      json(res, 200, { ok: true, queue: mutex.size, loggedIn: client.loggedIn });
+      json(res, 200, { ok: true, queue: mutex.size, loggedIn: client.loggedIn,
+                       conversation: client.currentConversationId || '' });
       return;
     }
 

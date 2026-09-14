@@ -1445,6 +1445,32 @@ pet2.history = _hist_real3
 pet2.affection = _aff_real3
 pet2.sleep = _sleep_real
 
+# 11.98 无头浏览器清理策略（一套 Chromium 就是 8 个进程，不能越堆越多）
+_fake_roots = [(11, 100.0), (22, 300.0), (33, 200.0)]      # (pid, create_time)
+_killed = []
+_orig_roots = w2a._our_browsers
+_orig_alive = w2a.service_alive
+_orig_kill = w2a._kill_tree
+w2a._our_browsers = lambda: list(_fake_roots)
+w2a._kill_tree = lambda pid: (_killed.append(pid), True)[1]
+w2a.service_alive = lambda: True
+check("browser sweep keeps only the newest while the service runs",
+      w2a.sweep_stray_browsers() == 2 and sorted(_killed) == [11, 33], _killed)
+_killed[:] = []
+w2a.service_alive = lambda: False
+check("browser sweep removes all of them when no service is running",
+      w2a.sweep_stray_browsers() == 3 and sorted(_killed) == [11, 22, 33], _killed)
+_killed[:] = []
+w2a._our_browsers = lambda: []
+check("browser sweep is a no-op without browsers", w2a.sweep_stray_browsers() == 0)
+w2a._our_browsers = _orig_roots
+w2a.service_alive = _orig_alive
+w2a._kill_tree = _orig_kill
+
+with open(os.path.join(w2a.VENDOR_DIR, "config.json"), encoding="utf-8") as _vf:
+    _idle_ms = int((json.load(_vf).get("browser") or {}).get("idleTimeoutMs", 0))
+check("builtin browser closes itself when idle", _idle_ms > 0, _idle_ms)
+
 # 12. weather classify
 check("wclass sunny", wclass(0, 5) == "sunny")
 check("wclass cloudy", wclass(3, 5) == "cloudy")

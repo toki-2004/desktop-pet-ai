@@ -194,6 +194,9 @@ export const config = {
   userDataDir: path.resolve(process.env.USER_DATA_DIR || resolveProjectPath(getValue(fileConfig, ['paths', 'userDataDir'], undefined), 'data/user-data')),
   tempDir: path.resolve(process.env.TEMP_DIR || resolveProjectPath(getValue(fileConfig, ['paths', 'tempDir'], undefined), 'tmp')),
   headless: boolConfig('HEADLESS', browserFileConfig.headless, false),
+  // 闲置多久关掉无头浏览器（毫秒，0=不关）：一套 Chromium 8 进程几百 MB，
+  // 桌宠大多时间用不到；下次请求按需重开并回到自己的那段对话
+  browserIdleMs: intEnv('BROWSER_IDLE_MS', browserFileConfig.idleTimeoutMs, 1200000),
   loginMode: boolEnv('DEEPSEEK_LOGIN', false) || process.argv.includes('--login'),
   // 5 分钟：网页版读网页/长思考经常超过 1-3 分钟，太早收手会误报失败
   requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', getValue(fileConfig, ['limits', 'requestTimeoutMs'], undefined), 300000),

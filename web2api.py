@@ -18,7 +18,7 @@ import threading
 import time
 
 import requests
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 import petlog
 
@@ -85,6 +85,65 @@ def _prune_login_backups(profile_dir, keep=3):
         return
     for name in baks[:-keep] if keep > 0 else baks:
         shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+
+
+def _our_browsers():
+    """本服务 user-data 目录下的无头浏览器主进程（父进程不是同类浏览器的那些）。
+
+    psutil 已经是运行依赖（running_apps.py 在用），这里不再引入新库。"""
+    profile = os.path.join(VENDOR_DIR, "data", "user-data").lower()
+    try:
+        import psutil
+    except Exception:
+        return []
+    procs = []
+    for p in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+        try:
+            info = p.info
+            name = (info.get("name") or "").lower()
+            if name not in ("msedge.exe", "chrome.exe", "chromium.exe", "brave.exe"):
+                continue
+            cmd = " ".join(info.get("cmdline") or []).lower()
+            if profile not in cmd:
+                continue
+            procs.append((p.pid, p.ppid(), info.get("create_time") or 0))
+        except Exception:
+            continue
+    pids = {pid for pid, _ppid, _t in procs}
+    roots = [(pid, t) for pid, ppid, t in procs if ppid not in pids]
+    return roots
+
+
+def _kill_tree(pid):
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           creationflags=subprocess.CREATE_NO_WINDOW,
+                           capture_output=True)
+        else:
+            os.kill(pid, 9)
+        return True
+    except Exception:
+        return False
+
+
+def sweep_stray_browsers():
+    """清理残留的无头浏览器（本服务 profile 的）。返回清掉的主进程数。
+
+    规则：服务没在跑 → 全清（都是上次留下的孤儿）；服务在跑 → 只留最新的一套，
+    其余是"页面被关后又 start() 出新的一套、旧的没回收"漏出来的。"""
+    roots = _our_browsers()
+    if not roots:
+        return 0
+    if service_alive():
+        roots.sort(key=lambda item: item[1], reverse=True)
+        victims = [pid for pid, _t in roots[1:]]
+    else:
+        victims = [pid for pid, _t in roots]
+    for pid in victims:
+        petlog.log("web2api: killing stray headless browser pid=%s" % pid)
+        _kill_tree(pid)
+    return len(victims)
 
 
 def session_status(check=False, timeout_s=3):
@@ -183,6 +242,7 @@ def kill_port_listener():
     """重新绑定前清掉 3000 端口上的旧服务（无论是不是自己拉起的）。"""
     stop_service()
     if not service_alive():
+        sweep_stray_browsers()   # 服务已停：把它的无头浏览器一起收掉（不然白占几百 MB）
         return
     try:
         out = subprocess.run(["netstat", "-ano", "-p", "tcp"],
@@ -198,8 +258,9 @@ def kill_port_listener():
         pass
     for _ in range(10):
         if not service_alive():
-            return
+            break
         threading.Event().wait(0.3)
+    sweep_stray_browsers()       # 旧服务杀掉后，浏览器若还在就是孤儿，一并清理
 
 
 def apply_max_messages(n):
@@ -237,11 +298,31 @@ class Manager(QObject):
     status = pyqtSignal(bool, str)  # (ok, message)
 
     LOGIN_LOST_MSG = "内置 AI 的 DeepSeek 登录态已失效，请在设置页点「重新绑定」重新登录"
+    SWEEP_INTERVAL_MS = 15 * 60 * 1000   # 每 15 分钟扫一次残留浏览器
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # 常驻看门狗：即使没有重启桌宠，也把漏出来的无头浏览器收掉
+        timer = QTimer(self)
+        timer.timeout.connect(self._sweep_async)
+        timer.start(self.SWEEP_INTERVAL_MS)
+        self._sweep_timer = timer
+
+    def _sweep_async(self):
+        threading.Thread(
+            target=lambda: sweep_stray_browsers(), daemon=True).start()
 
     def ensure_async(self):
         threading.Thread(target=self._ensure, daemon=True).start()
 
     def _ensure(self):
+        # 上一次留下的孤儿浏览器先清掉（一套就是 8 个进程、几百 MB）
+        try:
+            stray = sweep_stray_browsers()
+            if stray:
+                petlog.log("web2api: swept %d stray browser(s) at startup" % stray)
+        except Exception as e:
+            petlog.log("web2api: sweep failed: %s" % e)
         if service_alive():
             # 复用手头这个服务（桌宠重启时常见）：它可能早就掉了登录态，同步查一次
             if wait_session_status() is False:

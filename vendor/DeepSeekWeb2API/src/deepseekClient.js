@@ -44,9 +44,14 @@ export class DeepSeekClient {
     this.messagesInConversation = 0;  // 当前对话里本次进程已发的消息数
     this.currentConversationId = null;  // 本次进程自己创建的对话 id（绝不进入其他对话）
     this.loggedIn = null;  // null=还没查过；true/false=最近一次进对话界面的结果
+    this.lastUse = Date.now();  // 最近一次用到浏览器（闲置关浏览器用）
+    this.busy = false;          // 正在生成：别在这时候关浏览器
   }
 
   async start() {
+    // 先把旧浏览器关掉：页面被关/崩了之后又 start() 会再起一整套 Chromium，
+    // 旧的那套没人回收 → 后台越堆越多（一个实例在任务管理器里就是 8 个进程）
+    if (this.context) await this.close();
     await fs.mkdir(this.config.userDataDir, { recursive: true });
     const launchOptions = {
       // 服务运行无头（不弹窗口）；登录模式必须可见，否则用户无法操作
@@ -88,6 +93,17 @@ export class DeepSeekClient {
   }
 
   async generate({ prompt, imagePaths, model, onDelta }) {
+    this.busy = true;
+    this.lastUse = Date.now();
+    try {
+      return await this._generate({ prompt, imagePaths, model, onDelta });
+    } finally {
+      this.busy = false;
+      this.lastUse = Date.now();
+    }
+  }
+
+  async _generate({ prompt, imagePaths, model, onDelta }) {
     await this.ensureStarted();
     const page = this.page;
     const capabilities = model.capabilities;
@@ -161,8 +177,16 @@ export class DeepSeekClient {
       this.currentConversationId = null;
       return;
     }
-    if (this.currentConversationId && this.page.url().includes(this.currentConversationId)) {
-      return;  // 还在自己的对话里：继续复用
+    if (this.currentConversationId) {
+      if (this.page.url().includes(this.currentConversationId)) {
+        return;  // 还在自己的对话里：继续复用
+      }
+      // 浏览器被闲置关掉/崩溃重启过：回到"本次进程自己创建的那段对话"，
+      // 不要另开新的（绝不进入别人的对话，只是找回自己的）
+      const back = `${this.config.targetUrl.replace(/\/+$/, '')}/a/chat/s/${this.currentConversationId}`;
+      await this.page.goto(back, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      if (this.page.url().includes(this.currentConversationId)) return;
+      logger.warn('own conversation could not be reopened; starting a new one');
     }
     await this.page.goto(this.config.targetUrl, { waitUntil: 'domcontentloaded' });
     this.messagesInConversation = 0;
@@ -232,6 +256,7 @@ export class DeepSeekClient {
   }
 
   async _checkSession() {
+    this.lastUse = Date.now();
     await this.ensureStarted();
     try {
       // 已经停在对话界面（含正在复用的那段对话）就地确认，不导航：

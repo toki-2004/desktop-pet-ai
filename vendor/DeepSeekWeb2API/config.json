@@ -12,7 +12,8 @@
     "headless": true,
     "channel": "auto",
     "prefer": "default",
-    "executablePath": ""
+    "executablePath": "",
+    "idleTimeoutMs": 1200000
   },
   "paths": {
     "userDataDir": "data/user-data",

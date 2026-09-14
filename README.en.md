@@ -18,6 +18,9 @@ zero-cost chatting with no API key at all.
 - **Switch AI providers anytime**: besides the built-in free service, switch to
   the DeepSeek Open Platform / SiliconFlow / Kimi / any OpenAI-compatible
   endpoint; presets auto-fetch the platform's model list.
+- **No background hog**: the built-in AI's headless browser closes itself after 20
+  minutes idle (saves a few hundred MB) and reopens on your next message, resuming
+  the same conversation; leftover browsers from a previous run are cleaned at startup.
 - **It remembers**: an affection system plus chat-history context means the AI
   knows what you've talked about.
 - **It can see**: drop an image onto the pet, paste a screenshot with Ctrl+V
