@@ -116,11 +116,14 @@ cloud preset — see "AI settings".)
 
 The chat page can live on your phone, so you can talk to the pet while away:
 
-1. Right-click the desktop pet → **"Copy chat page address"** (the URL carries the token).
+1. Right-click the desktop pet → **"Copy chat page address"** (the `?k=` key is *not* written
+   into the apk; the script only tells you what to type).
 2. Run `tools\apk\build_apk.cmd` (double-click; it reads the clipboard by default) — or
    `.\build_apk.ps1 -Url "http://…/?k=…" -Label "Address 1"`.
-3. `desktop-pet-chat.apk` appears in the current folder. Install it (Android 7+) and one
-   button gives you the history, chatting, photos and head pats.
+3. `desktop-pet-chat.apk` appears in the current folder. Install it (Android 7+); type the key
+   once (`webchat_token` in `config.json`) and the app remembers it — from then on one button
+   gives you the history, chatting, photos and head pats. Another key = another chat history,
+   no rebuild needed.
 
 Requirements (JDK 17 / Gradle 8.x / Android SDK 34), all parameters and the usual traps
 (cleartext http, self-signed certificates, WebView photo picker) are in

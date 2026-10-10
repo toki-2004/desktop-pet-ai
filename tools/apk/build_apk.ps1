@@ -1,12 +1,15 @@
 <#
-Build a one-button "pet chat page" APK from a URL.
+Build a "pet chat page" APK: the address (host:port) is baked in, the access key
+is typed inside the app (and remembered there), so one APK can serve many chat
+histories - just enter another key. The key is NOT written into the APK.
 
   .\build_apk.ps1                                  # URL comes from the clipboard
   .\build_apk.ps1 -Url "http://192.168.1.5:8848/?k=abcd1234"
   .\build_apk.ps1 -Label "Address 1" -OutFile .\pet-chat.apk
 
 Right-click the desktop pet -> "Copy chat page address" puts the URL (with its
-token) on the clipboard, so running this script with no arguments is enough.
+token) on the clipboard, so running this script with no arguments is enough;
+the token part is dropped and only the address is kept.
 
 Requirements (see README.md in this folder):
   * JDK 17 on PATH
@@ -63,26 +66,40 @@ if (-not $Url) {
 }
 if (-not $Url) { $Url = (Read-Host "Paste the chat page URL").Trim() }
 if ($Url -notmatch '^https?://') { Fail "that does not look like a URL: $Url" }
-if ($Url -notmatch '\?k=') { Write-Host "WARN: no ?k= token in the URL; the page may refuse it." }
 
-# ---- 2. copy the template into a scratch folder and fill in the URL
+# The key stays out of the APK: keep only scheme://host:port (plus any path),
+# the token in ?k= is only echoed back so you know what to type in the app.
+$uri = [Uri]$Url
+$key = ""
+foreach ($pair in $uri.Query.TrimStart('?').Split('&')) {
+    if ($pair -match '^k=(.+)$') { $key = $Matches[1] }
+}
+$addr = $uri.GetLeftPart([UriPartial]::Authority) + $uri.AbsolutePath.TrimEnd('/')
+if ($key) {
+    $shown = if ($key.Length -gt 4) { $key.Substring(0, 2) + "****" + $key.Substring($key.Length - 2) } else { "****" }
+    Write-Host "Key     : $shown   (type it in the app, it is remembered there)"
+} else {
+    Write-Host "WARN: no ?k= key in the URL; you will have to know the key to type it in the app."
+}
+
+# ---- 2. copy the template into a scratch folder and fill in the address
 if (Test-Path $work) { Remove-Item -Recurse -Force $work }
 New-Item -ItemType Directory -Path $work | Out-Null
 Copy-Item -Recurse -Force (Join-Path $root "template\*") $work
 
 $javaPath = Join-Path $work "app\src\main\java\com\toki\petchat\MainActivity.java"
 if (-not (Test-Path $javaPath)) { Fail "template is incomplete: $javaPath missing" }
-$escUrl = $Url.Replace('\', '\\').Replace('"', '\"')
+$escAddr = $addr.Replace('\', '\\').Replace('"', '\"')
 $escLabel = $Label.Replace('\', '\\').Replace('"', '\"')
 $java = [IO.File]::ReadAllText($javaPath)
-$java = $java.Replace('__URL__', $escUrl).Replace('__LABEL__', $escLabel)
+$java = $java.Replace('__ADDR__', $escAddr).Replace('__LABEL__', $escLabel)
 [IO.File]::WriteAllText($javaPath, $java, $utf8)
 
 $sdk = (Get-AndroidSdk)
 $props = "sdk.dir=" + $sdk.Replace('\', '\\') + "`n"
 [IO.File]::WriteAllText((Join-Path $work "local.properties"), $props, $utf8)
 
-Write-Host "URL   : $Url"
+Write-Host "Address: $addr"
 Write-Host "Label : $Label"
 Write-Host "Build : $work"
 
@@ -110,3 +127,4 @@ $size = [math]::Round((Get-Item $OutFile).Length / 1KB, 1)
 Write-Host ""
 Write-Host "APK ready: $OutFile ($size KB)" -ForegroundColor Green
 Write-Host "Install  : adb install -r `"$OutFile`"   (or copy the file to the phone and tap it)"
+Write-Host "Then     : open the app and type the key (the ?k= part of the chat page URL)"

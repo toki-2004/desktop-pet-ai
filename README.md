@@ -86,11 +86,12 @@ python main.py
 
 聊天记录网页可以直接装进手机，出门在外也能和桌宠聊天：
 
-1. 右键桌面上的桌宠 →「**复制聊天记录网页地址**」（地址里带着访问口令）。
+1. 右键桌面上的桌宠 →「**复制聊天记录网页地址**」（密钥 `?k=…` 不进 apk，只提示你输什么）。
 2. 双击 `tools\apk\build_apk.cmd`（脚本默认直接读剪贴板；也可
    `.\build_apk.ps1 -Url "http://…/?k=…" -Label "地址1"`）。
-3. 当前目录会生成 `desktop-pet-chat.apk`，装到手机（Android 7+）后点一下按钮，
-   就能看聊天记录、发消息、发图、摸头。
+3. 当前目录会生成 `desktop-pet-chat.apk`，装到手机（Android 7+）；
+   第一次打开输一次密钥（`config.json` 的 `webchat_token`）就记住，之后点按钮
+   就能看聊天记录、发消息、发图、摸头。换密钥 = 换一份聊天记录，不用重新打包。
 
 环境要求（JDK 17 / Gradle 8.x / Android SDK 34）、全部参数与常见坑（明文 http、
 自签名证书、WebView 相册选择）见 [tools/apk/README.md](tools/apk/README.md)。

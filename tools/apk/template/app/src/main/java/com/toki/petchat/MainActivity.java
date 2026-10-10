@@ -2,10 +2,12 @@ package com.toki.petchat;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,26 +20,29 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 桌宠聊天记录网页的入口：一个按钮，点开就用 WebView 打开预置地址。
+ * 桌宠聊天记录网页的入口：地址（端口）在打包时预填，访问密钥由使用者在 App 里输入。
  *
- * URL 与按钮文案由 tools/apk/build_apk.ps1 在打包时填进来（占位符 __URL__ / __LABEL__），
- * 所以这个模板里不含任何个人地址。
+ * 地址与按钮文案由 tools/apk/build_apk.ps1 填进来（占位符 __ADDR__ / __LABEL__），
+ * 所以这个模板里不含任何个人地址或密钥；打出来的 apk 里也不会带密钥。
  */
 public class MainActivity extends Activity {
 
     private static final int REQ_FILE = 1001;
+    private static final String PREFS = "petchat";
 
     private static final String[] LABELS = {"__LABEL__"};
-    private static final String[] URLS = {"__URL__"};
+    private static final String[] ADDRS = {"__ADDR__"};
 
     private WebView webView;
     private LinearLayout menu;
+    private EditText keyInput;
     private ValueCallback<Uri[]> fileCallback;
 
     @Override
@@ -67,8 +72,32 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER);
         box.addView(title);
 
+        TextView hint = new TextView(this);
+        hint.setText("密钥（网页地址 ?k= 后面那串），输一次记住；换密钥就是换一份聊天记录");
+        hint.setTextColor(Color.parseColor("#8A8F98"));
+        hint.setTextSize(13);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hintLp.topMargin = 24;
+        hint.setLayoutParams(hintLp);
+        box.addView(hint);
+
+        keyInput = new EditText(this);
+        keyInput.setHint("在这里输密钥");
+        keyInput.setSingleLine(true);
+        // 密钥是十六进制串：关掉首字母大写/输入联想，否则 a1b2… 会被输成 A1b2…
+        keyInput.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        keyInput.setTextSize(18);
+        keyInput.setTextColor(Color.WHITE);
+        keyInput.setHintTextColor(Color.parseColor("#8A8F98"));
+        keyInput.setText(getSharedPreferences(PREFS, MODE_PRIVATE).getString("key", ""));
+        box.addView(keyInput);
+
         for (int i = 0; i < LABELS.length; i++) {
-            final String url = URLS[i];
+            final String addr = ADDRS[i];
             Button button = new Button(this);
             button.setText(LABELS[i]);
             button.setTextSize(18);
@@ -76,7 +105,7 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.topMargin = 28;
             button.setLayoutParams(lp);
-            button.setOnClickListener(v -> open(url));
+            button.setOnClickListener(v -> open(addr));
             box.addView(button);
         }
         return box;
@@ -153,7 +182,11 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
-    private void open(String url) {
+    /** 拼出 地址?k=密钥；密钥留空就按"没设口令"打开，页面会自己提示 token 不对。 */
+    private void open(String addr) {
+        String key = keyInput.getText().toString().trim();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("key", key).apply();
+        String url = addr + (key.isEmpty() ? "" : "?k=" + Uri.encode(key));
         Toast.makeText(this, "正在打开…", Toast.LENGTH_SHORT).show();
         menu.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
