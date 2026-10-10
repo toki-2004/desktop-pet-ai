@@ -731,6 +731,43 @@ pet2.config.set("ai_persona", _persona_saved)
 pet2.config.set("ai_fallback_enabled", _fallback_saved)
 pet2.ai = _ai_off
 
+# 11.45b 人设文本一改就换人设：下一条消息按断线重连同标准新开对话
+#       （重置注入标记 + 后台重启内置服务）；文本没变则不动这段对话
+_persona_restarts = []
+_restart_async_saved = w2a.restart_async
+w2a.restart_async = lambda: _persona_restarts.append(1)
+pet2.config.set("ai_preset", "deepseek_web2api")
+pet2.config.set("ai_persona", "已生效人设")
+pet2._persona_active = "已生效人设"
+pet2._convo_primed = True
+pet2._new_conversation_if_persona_changed()
+check("same persona text keeps the conversation",
+      pet2._convo_primed is True and _persona_restarts == [],
+      (_persona_restarts, pet2._convo_primed))
+pet2.config.set("ai_persona", "新人设：换人设用例")
+pet2._new_conversation_if_persona_changed()
+check("persona edit reopens the conversation (unprime + service restart)",
+      pet2._convo_primed is False and _persona_restarts == [1],
+      (_persona_restarts, pet2._convo_primed))
+pet2._convo_primed = True
+pet2._new_conversation_if_persona_changed()   # 再点一次保存、人设没再改
+check("saving again without a persona edit is a no-op",
+      pet2._convo_primed is True and _persona_restarts == [1], _persona_restarts)
+w2a.restart_async = _restart_async_saved
+pet2.config.set("ai_preset", "deepseek_web2api")
+pet2._convo_primed = False
+pet2._start_mono = _time.monotonic() - 30.0
+pet2.ai = _CaptureAI(pet2.config)
+_cap2[:] = []
+pet2._ask_ai([{"role": "user", "content": "换人设后第一句"}], {"kind": "chat"})
+check("first message after the persona edit carries the new persona",
+      len(_cap2) == 1 and "换人设用例" in _cap2[0][1],
+      _cap2[0][1][:60] if _cap2 else None)
+pet2.ai = _ai_off
+pet2.config.set("ai_preset", _preset_saved)
+pet2.config.set("ai_persona", _persona_saved)
+pet2._persona_active = _persona_saved
+
 # 11.46 重启后 10s 内不发首条 AI 请求：让"内置 AI 已就绪"先弹出，避免覆盖
 #      桌宠刚启动时主动说的第一句话
 pet2.STARTUP_AI_DELAY_S = 0.3

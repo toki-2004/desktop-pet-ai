@@ -337,6 +337,8 @@ class DesktopPet:
         # 内置免费 AI（DeepSeek 网页对话）自带对话记录：人设只需在每次
         # 新对话的第一条请求注入（启动/重连后的首请求），不逐条重复。
         self._convo_primed = False
+        # 当前这段对话用的人设文本：设置里改了人设就新开对话（见 _on_settings_applied）
+        self._persona_active = str(self.config.get("ai_persona", "")).strip()
         self._wire()
         self.webchat = None
         if not os.environ.get("PET_SMOKE"):
@@ -749,9 +751,24 @@ class DesktopPet:
         self.balance.set_interval(int(self.config.get("poll_interval_sec", 3)))
         self.balance.poll()
         web2api.apply_max_messages(self.config.get("ai_web2api_max_messages", 20))
+        self._new_conversation_if_persona_changed()
         self.affection.apply_config()
         if self._balloon is not None:
             self._balloon.set_top_flag(bool(self.config.get("always_on_top", True)))
+
+    def _new_conversation_if_persona_changed(self):
+        """人设文本一改就算换人设：按断线重连同标准新开一段对话。
+
+        内置网页 AI 的一段对话只吃一次人设，旧人设留在记录里；所以重置注入标记 +
+        后台重启内置服务（重启即新对话，服务没在跑就不用管）。"""
+        persona = str(self.config.get("ai_persona", "")).strip()
+        if persona == self._persona_active:
+            return
+        self._persona_active = persona
+        self._convo_primed = False
+        petlog.log("persona changed: starting a new conversation")
+        web2api.restart_async()
+        self._show_balloon("人设已换，下一条消息起新开一段对话")
 
     def _setup_tray(self):
         petlog.log("tray setup entered")

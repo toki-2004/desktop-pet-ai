@@ -40,7 +40,9 @@ if (config.loginMode) {
   });
   // 起服务就顺手确认一次登录态（后台，不挡端口就绪）：登录失效要早发现，
   // 不要让用户聊到一半才发现进不去对话界面；结果从 /health 的 loggedIn 读。
-  client.checkSession()
+  // 检查也走同一个队列：否则它和启动后马上来的第一条请求同时 page.goto，
+  // 后到的那次导航会被前一次中断（net::ERR_ABORTED / context closed）。
+  mutex.run(() => client.checkSession())
     .then(ok => logger.info('session check finished', { loggedIn: ok }))
     .catch(err => logger.warn('session check error', { error: err.message }));
   // 闲置就把浏览器关掉：无头 Chromium 一套 8 个进程、几百 MB，桌宠大部分时间用不到它；
@@ -69,7 +71,7 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && parsedUrl.pathname === '/health') {
       // ?check=1：同步做一次"能不能进对话界面"的检查（并发时复用同一次检查）
       if (parsedUrl.searchParams.get('check') === '1') {
-        await client.checkSession().catch(() => {});
+        await mutex.run(() => client.checkSession()).catch(() => {});
       }
       json(res, 200, { ok: true, queue: mutex.size, loggedIn: client.loggedIn,
                        conversation: client.currentConversationId || '' });

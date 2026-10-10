@@ -281,11 +281,26 @@ def apply_max_messages(n):
     threading.Thread(target=_restart_for_config, daemon=True).start()
 
 
-def _restart_for_config():
-    """配置变化后重启自己拉起的服务（外部服务不强制重启，下次启动自然生效）。"""
+def restart_async():
+    """后台重启内置服务 = 新一段对话（换人设后用，见 main._new_conversation_if_persona_changed）。
+
+    与断线重连同标准：整段换掉进程，网页端就不会再带着旧人设的那段对话记录。
+    ponytail: 整段重启够用（几秒）；要秒级换对话再给 vendor 加个新对话端点。"""
+    threading.Thread(target=_restart_for_config,
+                     kwargs={"force": True}, daemon=True).start()
+
+
+def _restart_for_config(force=False):
+    """配置变化后重启自己拉起的服务（外部服务不强制重启，下次启动自然生效）。
+
+    force=True（换人设要新对话）连 3000 上那个不是本进程拉起的服务一起换掉：
+    否则残留/手动启动的服务里那段旧人设对话换不掉，新人设根本没生效。"""
     if not service_alive():
         return
-    stop_service()
+    if force:
+        kill_port_listener()   # service_alive() 已确认 3000 上是 web2api，换掉它=新对话
+    else:
+        stop_service()
     start_service()
 
 
