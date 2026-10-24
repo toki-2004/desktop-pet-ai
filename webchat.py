@@ -160,6 +160,7 @@ PAGE = """<!doctype html>
 var K = new URLSearchParams(location.search).get('k') || '';
 var api = function(p){ return p + (K ? '?k=' + encodeURIComponent(K) : ''); };
 var rev = -1, waiting = 0, tierZh = {high:'高', mid:'一般', low:'低'};
+var pendingImage = null;
 /* follow：是否跟着最新消息走。
    true  = 每来一条新消息就翻到底（默认，也是"我自己发消息"之后的状态）
    false = 我已经往上翻过 3 条以上：不打扰，只提示"有新消息 ↓"，回到底部附近自动恢复 */
@@ -228,7 +229,8 @@ function render(msgs){
   var last = msgs.length ? msgs[msgs.length - 1] : null;
   var replied = !!last && last.role !== 'user';
   if (replied) { waiting = 0; document.getElementById('send').disabled = false; }
-  document.getElementById('hint').textContent = waiting ? '已发送，桌宠思考中…' : '';
+  document.getElementById('hint').textContent = waiting ? '已发送，桌宠思考中…'
+      : (pendingImage ? '图片已选：可以输入一句话再点发送，也可以直接发送图片' : '');
   if (follow) {
     stickToBottom();
     document.getElementById('new').style.display = 'none';
@@ -251,15 +253,18 @@ function tick(first){
 }
 function send(){
   var el = document.getElementById('txt'); var text = el.value.trim();
-  if (!text) return;
+  if (!text && !pendingImage) return;
+  if (pendingImage) { uploadImage(pendingImage, text); return; }
   el.value = ''; waiting = 1;
   follow = true;                 // 自己发的消息：一定翻到最新
   // 先本地显示，别等下一轮轮询（发送后立刻能看到自己发的话）
-  localEcho(text);
+  var echo = localEcho(text);
   document.getElementById('hint').textContent = '已发送，桌宠思考中…';
   fetch(api('/api/chat'), {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({text: text})}).then(function(r){ return r.json(); })
-    .then(function(d){ if (d.error) { waiting = 0; document.getElementById('hint').textContent = d.error; } });
+    .then(function(d){ if (d.error) { waiting = 0;
+      if (echo.parentNode) echo.remove();
+      document.getElementById('hint').textContent = d.error; } });
 }
 function pat(){
   var b = document.getElementById('pat');
@@ -305,24 +310,34 @@ function localEcho(text){
   box.appendChild(body);
   list.appendChild(box);
   toBottom();
+  return box;
 }
 function sendImage(file){
   if (!file) return;
-  waiting = 1; follow = true;    // 自己发的消息：一定翻到最新
+  pendingImage = file;
+  document.getElementById('hint').textContent =
+    '图片已选：可以输入一句话再点发送，也可以直接发送图片';
+}
+function uploadImage(file, text){
+  pendingImage = null;
+  var el = document.getElementById('txt');
+  el.value = ''; waiting = 1; follow = true;
   document.getElementById('send').disabled = true;
   document.getElementById('hint').textContent = '正在上传图片…';
-  localEcho('（发送了一张图片：' + file.name + '）');
+  var echo = localEcho(text || '（发送了一张图片：' + file.name + '）');
   shrink(file).then(function(dataUrl){
     if (!dataUrl) throw new Error('读不出这张图');
     return fetch(api('/api/image'), {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({image: dataUrl})});
+      body: JSON.stringify({image: dataUrl, text: text})});
   }).then(function(r){ return r.json(); }).then(function(d){
     if (d.error) { waiting = 0; document.getElementById('send').disabled = false;
+                   if (echo.parentNode) echo.remove();
                    document.getElementById('hint').textContent = d.error; return; }
     document.getElementById('hint').textContent = '已发送，桌宠看图思考中…';
   }).catch(function(e){
     waiting = 0; document.getElementById('send').disabled = false;
+    if (echo.parentNode) echo.remove();
     document.getElementById('hint').textContent = '图片发送失败：' + (e.message || e);
   });
 }
@@ -382,7 +397,8 @@ class WebChat(QObject):
 
     chatRequested = pyqtSignal(str)
     patRequested = pyqtSignal()   # 网页点"摸头"：走桌宠单击摸头同一条链路
-    imageRequested = pyqtSignal(str)   # 网页传图：走桌宠拖图/粘贴截图同一条链路
+    imageRequested = pyqtSignal(str)   # 网页传图（不带文字）：走桌宠拖图/粘贴截图同一条链路
+    imageChatRequested = pyqtSignal(str, str)   # 网页传图 + 一句话：等用户发完再回应
 
     def __init__(self, history, port=8848, token="", bind="0.0.0.0", state_fn=None):
         super().__init__()
@@ -522,13 +538,21 @@ class WebChat(QObject):
                     self._send(200, json.dumps(out, ensure_ascii=False))
                     return
                 if parsed.path == "/api/image":
+                    text = str(payload.get("text") or "").strip()
+                    if len(text) > 2000:
+                        self._send(400, json.dumps(
+                            {"error": "太长了"}, ensure_ascii=False))
+                        return
                     path = save_data_url(payload.get("image") or "")
                     if not path:
                         self._send(400, json.dumps(
                             {"error": "图片格式不支持或太大（20MB 上限）"},
                             ensure_ascii=False))
                         return
-                    owner.imageRequested.emit(path)   # 跨线程 → 主线程发图
+                    if text:
+                        owner.imageChatRequested.emit(path, text)   # 跨线程 → 主线程发图+文字
+                    else:
+                        owner.imageRequested.emit(path)   # 跨线程 → 主线程发图
                     self._send(200, json.dumps({"ok": True}, ensure_ascii=False))
                     return
                 if parsed.path != "/api/chat":

@@ -13,8 +13,8 @@ zero-cost chatting with no API key at all.
   web DeepSeek account once; no paid API key ever needed.
 - **AI generates everything in real time**: self-talk, head-pat reactions and
   chat replies come straight from the model — no repetitive quote banks.
-  Customize the persona; behavior adapts to time of day, weather, affection
-  tier, work status and more.
+  Customize the persona; behavior adapts to time of day, weather, currently
+  open apps and more.
 - **Switch AI providers anytime**: besides the built-in free service, switch to
   the DeepSeek Open Platform / SiliconFlow / Kimi / any OpenAI-compatible
   endpoint; presets auto-fetch the platform's model list.
@@ -24,9 +24,10 @@ zero-cost chatting with no API key at all.
 - **It remembers**: an affection system plus chat-history context means the AI
   knows what you've talked about.
 - **It can see**: drop an image onto the pet, paste a screenshot with Ctrl+V
-  (Win+Shift+S works straight away), or use right-click → "Send image…" and it
-  looks at the picture and says something. The built-in free AI uses DeepSeek
-  web image recognition, so it stays free.
+  (Win+Shift+S works straight away), or use right-click → "Send image…"; the
+  image is attached to the input box so you can add a sentence before sending
+  (Enter alone just sends the image). The built-in free AI uses DeepSeek web
+  image recognition, so it stays free.
 - **It knows what you're doing**: current open apps plus apps currently playing
   audio (background music counts) are injected into the AI context, so it can
   tell coding, gaming or video-watching apart and keep the chat on topic.
@@ -35,31 +36,34 @@ zero-cost chatting with no API key at all.
 
 1. **Free AI chat**: an always-visible input box below the pet; press Enter to chat.
 2. **AI self-talk**: triggered by time, weather, idle reminders, attention
-   seeking, affection tiers, work status, etc.
+   seeking, affection tiers, etc.
 3. **Head-pat interaction**: click the pet to play a bouncy animation and get an
    AI reaction.
 4. **Affection system**: petting raises affection, idleness decays it; tiers
    shape the AI's tone, with an always-visible badge.
 5. **Image chat**: drop an image / paste a screenshot / right-click "Send image…";
-   the AI looks at it and answers, and the exchange is saved to history.
+   add a caption if you like, then send both together. The AI looks at it and
+   answers, and the exchange is saved to history.
 6. **Chat-history web page (LAN)**: open one URL from your phone or tablet on the
    same WiFi to read the history and talk to the pet — exactly like typing in the
    pet's input box. The header shows the current affection and has a **head-pat
    button** (same path as clicking the pet: animation + AI reaction + affection);
    the log refreshes every 2 seconds, so replies show up without reloading. The
-   **图片** button sends a photo/gallery image to the pet (same as dragging an
-   image onto the desktop pet; big photos are downscaled on the phone first), and
-   sent images are rendered inline in the log (tap for the full picture).
+   **图片** button lets you pick a photo/gallery image (big photos are
+   downscaled on the phone first); you can type a caption before sending, and
+   both go together. Sent images are rendered inline in the log (tap for the
+   full picture).
    The URL carries an access token; right-click the pet to copy it.
 7. **Work-status awareness**: after binding a balance account, work state
-   (working / idle / topped up) is derived from balance changes and injected
-   into the AI prompt; the AI speaks on state changes.
+   (working / idle / topped up) is derived from balance changes; the pet speaks
+   on state changes.
 8. **Balance query**: multi-platform accounts (DeepSeek / Kimi / SiliconFlow),
-   with the balance label always visible at the pet's top-left.
+   with the balance label always visible at the pet's top-left; the current total
+   is also injected into the AI context (omitted when unbound or unavailable).
 9. **Context label group**: affection / period / work-status labels sit side by
    side below the pet.
-10. **Weather awareness**: auto geo-location + Open-Meteo weather; it will chat
-   about rain.
+10. **Weather awareness**: hourly geo-location + Open-Meteo weather, injected
+    into the prompt; it will strike up a chat when the weather changes.
 11. **Chat history**: persisted to JSON; the history dialog opens scrolled to the
    latest message.
 12. **Look & layout**: PNG/GIF skins, wheel zoom, position/size memory,
@@ -75,6 +79,8 @@ zero-cost chatting with no API key at all.
     "呼……呼……（桌宠似乎睡得正香）" (not saved to history), self-talk stops, and
     affection neither rises nor decays; its first line after waking sounds like
     someone who just got up.
+16. **QQ private chat (optional)**: connect a secondary personal QQ account through
+    NapCat / OneBot 11 and talk to the same built-in AI; text DMs only.
 
 ## Screenshots
 
@@ -132,6 +138,24 @@ Requirements (JDK 17 / Gradle 8.x / Android SDK 34), all parameters and the usua
 Note: only the **builder and project template** live in this repository (no address and no
 token); releases never ship an apk — keep your generated apk local.
 
+### QQ private chat (optional)
+
+Use a secondary personal QQ account as the bot; no QQ Open Platform AppID is needed.
+The built-in bridge connects through OneBot 11 to
+[NapCatQQ](https://github.com/NapNeko/NapCatQQ):
+
+1. Install NapCat and sign in with a **secondary account**, then enable the OneBot 11
+   WebSocket server (default `ws://127.0.0.1:3001`, message format: array).
+2. In `config.json`, set `qq_bridge_enabled` to `true`; set `qq_bridge_token` to the
+   NapCat token (leave empty if none); put your QQ number in `qq_bridge_allowed_ids`.
+   If the list is empty, the first private sender is bound automatically. Bind NapCat's
+   WebSocket to `127.0.0.1` and set a token; do not expose an unauthenticated port to the LAN.
+3. Restart the pet and send a private message to that QQ account.
+
+Only text DMs are supported; images and group chats are not. QQ and the desktop pet
+share the same built-in AI conversation. Personal-QQ automation is unofficial and
+may trigger risk controls or account suspension, so **use a secondary account**.
+
 ### Common actions
 
 - **Chat**: press Enter in the input box below the pet.
@@ -146,10 +170,10 @@ token); releases never ship an apk — keep your generated apk local.
   messages it stays put and only shows a "有新消息 ↓" hint until you tap it or
   scroll to the bottom. Its header shows the affection and offers a
   "摸头" (head-pat) button identical to clicking the pet, and its input box sends
-  messages exactly like the pet's own input box. Next to it a "图片" button sends
-  a photo/gallery image, exactly like dropping an image on the desktop pet
-  (large photos are downscaled on the phone before upload); sent images show up in
-  the log itself (tap to open the original). The `?k=…` in the URL is the
+  messages exactly like the pet's own input box. Next to it a "图片" button lets
+  you pick a photo/gallery image (large photos are downscaled on the phone);
+  type a caption before sending if you like, and both go together. Sent images
+  show up in the log itself (tap to open the original). The `?k=…` in the URL is the
   access token (generated on first run, stored in `config.json`); set
   `webchat_enabled` to `false` to turn the page off.
 - **Put it to sleep**: just say "晚安" (good night) or "午安" (nap) — it answers, then
@@ -199,6 +223,9 @@ backup). Common keys:
   `ai_context_n`, `ai_fallback_enabled`, `ai_web2api_max_messages`;
 - Chat page: `webchat_enabled`, `webchat_port` (default 8848), `webchat_bind`
   (default 0.0.0.0; use 127.0.0.1 for this machine only), `webchat_token`;
+- QQ private chat: `qq_bridge_enabled`, `qq_bridge_ws_url`
+  (default `ws://127.0.0.1:3001`), `qq_bridge_token`, `qq_bridge_allowed_ids`
+  (empty binds the first private sender automatically);
 - Balance/work status: `accounts`, `poll_interval_sec`, `show_balance`,
   `work_label_enabled`, `work_state_hold_sec`;
 - Others: `self_talk_enabled`, `self_talk_interval`, `chat_history_max`,
@@ -207,7 +234,7 @@ backup). Common keys:
 ## Development & testing
 
 ```bash
-python tests/offscreen_smoke.py   # offscreen self-check (209 checks)
+python tests/offscreen_smoke.py   # offscreen self-check (261 checks)
 PET_SMOKE=1 python main.py        # smoke run, exit 0 = pass
 tools\apk\build_apk.cmd           # pack the chat page into a phone APK (see tools/apk/README.md)
 ```

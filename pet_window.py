@@ -73,6 +73,7 @@ class ChatInput(QLineEdit):
         self.config = config
         self.pet_window = parent
         self._drag_pos = None
+        self._pending_image = ""
         self.setPlaceholderText("和桌宠说点什么…")
         # 原生 QLineEdit 行为：空文本获得焦点时占位符自动消失、出现跳动光标
         # （像浏览器搜索栏）；自定义 paintEvent 只画圆角背景，文本/光标/占位符
@@ -86,19 +87,38 @@ class ChatInput(QLineEdit):
 
     def _send(self):
         text = self.text().strip()
-        if text:
-            self.clear()
-            if self.pet_window is not None:
+        path = self._pending_image
+        if not text and not path:
+            return
+        self._pending_image = ""
+        self.clear()
+        self.setPlaceholderText("和桌宠说点什么…")
+        self.setToolTip("输入后回车发送；也可拖入图片或 Ctrl+V 粘贴截图")
+        if self.pet_window is not None:
+            if path:
+                self.pet_window.imageChatRequested.emit(path, text)
+            else:
                 self.pet_window.chatInputRequested.emit(text)
 
+    def attach_image(self, path):
+        """先挂起图片，等用户把想说的话一起发出去；直接回车则只发图。"""
+        if not path:
+            return
+        self._pending_image = path
+        self.setPlaceholderText("图片已附上，说句话一起发…（直接回车只发图）")
+        self.setToolTip("图片已附上：输入一句话后回车一起发送")
+        if self.pet_window is not None:
+            self.pet_window.show_float_text("图片已附上，说句话一起发", "#3D8BFF")
+        self.setFocus()
+
     def keyPressEvent(self, event):
-        """Ctrl+V 粘贴剪贴板里的图片（Win+Shift+S 截图）直接发送；文本仍走原生粘贴。"""
+        """Ctrl+V 粘贴剪贴板里的图片（Win+Shift+S 截图）先挂起；文本仍走原生粘贴。"""
         if event.matches(QKeySequence.Paste) and self._send_clipboard_image():
             return
         super().keyPressEvent(event)
 
     def _send_clipboard_image(self):
-        """剪贴板是图片（无文字）时存成临时 PNG 直接送 AI，返回是否已处理。"""
+        """剪贴板是图片（无文字）时存成临时 PNG 先挂起，返回是否已处理。"""
         if self.pet_window is None:
             return False
         md = QApplication.clipboard().mimeData()
@@ -109,7 +129,7 @@ class ChatInput(QLineEdit):
                             "pet_clip_%d.png" % int(time.time() * 1000))
         if not img.save(path, "PNG"):
             return False
-        self.pet_window.imageInputRequested.emit(path)
+        self.attach_image(path)
         return True
 
     def set_top_flag(self, on):
@@ -282,7 +302,7 @@ class WorkingStatusLabel(QLabel):
         return self._state == "down" and time.monotonic() - self._last_down < self._hold_sec
 
     def current_state(self):
-        """当前工作状态键："up"/"down"/"flat"/"unknown"（供 AI prompt 使用）。"""
+        """当前工作状态键："up"/"down"/"flat"/"unknown"（供状态标签使用）。"""
         return self._state
 
     def set_state(self, state):
@@ -479,7 +499,7 @@ class PetWindow(QWidget):
     autoStartRequested = pyqtSignal(bool)
     petHeadRequested = pyqtSignal()
     chatInputRequested = pyqtSignal(str)
-    imageInputRequested = pyqtSignal(str)
+    imageChatRequested = pyqtSignal(str, str)
     historyRequested = pyqtSignal()
     webchatUrlRequested = pyqtSignal()
     balanceVisibleRequested = pyqtSignal(bool)
@@ -755,7 +775,7 @@ class PetWindow(QWidget):
         path, _ = QFileDialog.getOpenFileName(
             self, "选择要发送的图片", "", "图片 (*.png *.jpg *.jpeg *.webp *.gif)")
         if path:
-            self.imageInputRequested.emit(path)
+            self.chat_input.attach_image(path)
 
     def do_head_pat(self):
         """摸头一次：播放一遍互动 GIF + 发出 petHeadRequested。
@@ -782,7 +802,7 @@ class PetWindow(QWidget):
         path = image_path_from_mime(event.mimeData())
         if path:
             event.acceptProposedAction()
-            self.imageInputRequested.emit(path)
+            self.chat_input.attach_image(path)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

@@ -14,11 +14,14 @@ from PyQt5.QtWidgets import (
 )
 
 from ai_client import PRESETS
+from config import APP_VERSION
 from platforms import PROVIDERS
 
 DEFAULT_PERSONA = (
-    "你是一只住在用户桌面上的 AI 桌宠，说话可爱、简短、口语化，每次回复尽量不超过两句话。"
-    "你会根据当前情境（时间、天气、好感度等）主动说话，也会回应主人的摸头和聊天。"
+    "你是一个有自己生活、性格和情绪的女生。"
+    "你知道这台电脑上的时间、正在用的应用和天气，也通过这台电脑和对方聊天。"
+    "你们是平等的，没有主仆或从属关系；怎么称呼对方、保持怎样的距离，"
+    "由你自己的感受决定。聊天时像真人一样自然，会接话，也会有自己的判断和小情绪。"
 )
 
 
@@ -104,6 +107,10 @@ class SettingsDialog(QDialog):
 
         lay = QVBoxLayout(self)
         lay.addWidget(self.tabs)
+        self.version_label = QLabel("版本 v%s" % APP_VERSION)
+        self.version_label.setAlignment(Qt.AlignRight)
+        self.version_label.setStyleSheet("color:#777;")
+        lay.addWidget(self.version_label)
         lay.addWidget(btns)
 
     # ---------- 通知页 ----------

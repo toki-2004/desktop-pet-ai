@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 
+APP_VERSION = "1.15.0"
+
 DEFAULT_CONFIG = {
     "balloon_fill": "#FFFFFF",
     "balloon_outline": "#1E3A8A",
@@ -50,8 +52,10 @@ DEFAULT_CONFIG = {
     "ai_api_key": "sk-local",  # 内置服务的本地 key（与 vendor config.json 一致）
     "ai_model": "deepseek-chat",
     "ai_persona": (
-        "你是一只住在用户桌面上的 AI 桌宠，说话可爱、简短、口语化，每次回复尽量不超过两句话。"
-        "你会根据当前情境（时间、天气、好感度等）主动说话，也会回应主人的摸头和聊天。"
+        "你是一个有自己生活、性格和情绪的女生。"
+        "你知道这台电脑上的时间、正在用的应用和天气，也通过这台电脑和对方聊天。"
+        "你们是平等的，没有主仆或从属关系；怎么称呼对方、保持怎样的距离，"
+        "由你自己的感受决定。聊天时像真人一样自然，会接话，也会有自己的判断和小情绪。"
     ),
     "ai_context_n": 10,
     # 读超时（秒）：要比内置服务自己的等待上限（vendor requestTimeoutMs=300s）更长，
@@ -61,6 +65,11 @@ DEFAULT_CONFIG = {
     "ai_fallback_text": "唔……我现在有点短路了",
     "ai_web2api_max_messages": 20,  # 内置 DeepSeek 网页对话的消息上限（0=不限制）
     "chat_history_max": 200,
+    # QQ 私聊桥（OneBot 11 / NapCat；默认关闭）
+    "qq_bridge_enabled": False,
+    "qq_bridge_ws_url": "ws://127.0.0.1:3001",
+    "qq_bridge_token": "",
+    "qq_bridge_allowed_ids": [],
     # 睡眠状态（说了"午安/晚安"后存这里，重启接着睡；醒来条件见 sleep.py）
     "sleep_kind": "",
     "sleep_until": 0,

@@ -20,12 +20,13 @@ from PyQt5.QtWidgets import QApplication, QPlainTextEdit  # noqa: E402
 from affection import AffectionSystem  # noqa: E402
 from ai_client import PRESETS, strip_citations  # noqa: E402
 from chat_history import ChatHistory, HistoryDialog  # noqa: E402
-from config import Config  # noqa: E402
+from config import APP_VERSION, Config  # noqa: E402
 from pet_window import PetWindow  # noqa: E402
 from scheduler import is_peak  # noqa: E402
 from settings_dialog import SettingsDialog  # noqa: E402
 from weather import classify as wclass  # noqa: E402
 import main as main_mod  # noqa: E402
+import qq_bridge as qq_mod  # noqa: E402
 import weather as weather_mod  # noqa: E402
 
 app = QApplication(sys.argv)
@@ -190,6 +191,10 @@ SettingsDialog._fetch_models = lambda self: None
 dlg = SettingsDialog(cfg_aff)
 check("settings has affection controls",
       hasattr(dlg, "aff_check") and hasattr(dlg, "aff_gain"))
+check("settings shows the app version",
+      hasattr(dlg, "version_label")
+      and dlg.version_label.text() == "版本 v%s" % APP_VERSION,
+      getattr(getattr(dlg, "version_label", None), "text", lambda: None)())
 check("settings has AI preset combo",
       hasattr(dlg, "preset_combo") and hasattr(dlg, "base_edit")
       and dlg.preset_combo.currentData() in PRESETS)
@@ -526,7 +531,78 @@ check("app-level: pet window wired", pet2.window is not None
       and pet2.ai is not None and pet2.history is not None)
 check("app-level: chat input visible", pet2.window.chat_input.isVisible())
 check("app-level: balance selftest wired", pet2.window.balance_label.text() == "selftest")
-check("app-level: prompt includes work state", "工作状态" in pet2._system_prompt())
+from config import DEFAULT_CONFIG  # noqa: E402
+from settings_dialog import DEFAULT_PERSONA  # noqa: E402
+pet2._last_balance = "¥12.34"
+check("balance total is injected into the prompt",
+      "当前账户余额合计：¥12.34" in pet2._system_prompt())
+pet2._on_balance_updated(0.0, "未绑定账号")
+check("unbound balance is omitted from the prompt",
+      "未绑定账号" not in pet2._system_prompt())
+pet2._on_balance_updated(0.0, "selftest")
+check("balance selftest placeholder is omitted from the prompt",
+      "selftest" not in pet2._system_prompt())
+check("built-in persona is equal and matches the settings fallback",
+      DEFAULT_PERSONA == DEFAULT_CONFIG["ai_persona"]
+      and "平等" in DEFAULT_PERSONA
+      and "桌宠" not in DEFAULT_PERSONA and "主人" not in DEFAULT_PERSONA)
+class _QQCfg:
+    def __init__(self):
+        self.data = {"qq_bridge_allowed_ids": []}
+
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+
+    def set(self, key, value):
+        self.data[key] = value
+
+
+_qq = qq_mod.QQBridge(_QQCfg(), lambda: "SYS")
+check("qq bridge extracts text segments",
+      qq_mod.extract_text([
+          {"type": "text", "data": {"text": "你"}},
+          {"type": "image", "data": {"url": "x"}},
+          {"type": "text", "data": {"text": "好"}},
+      ]) == "你好")
+check("qq bridge strips CQ codes", qq_mod.extract_text("hi[CQ:face,id=1]") == "hi")
+check("qq bridge chunks long replies", len(qq_mod.chunk_text("x" * 3100)) == 3)
+_qq.handle_event({"post_type": "message", "message_type": "private", "self_id": 1,
+                  "user_id": 2, "message_id": 10,
+                  "message": [{"type": "text", "data": {"text": "hi"}}]})
+check("qq bridge auto-binds first private sender",
+      _qq._allowed == {"2"} and _qq.config.data["qq_bridge_allowed_ids"] == ["2"]
+      and _qq._queue.qsize() == 1)
+_qq.handle_event({"post_type": "message", "message_type": "private", "self_id": 1,
+                  "user_id": 2, "message_id": 10,
+                  "message": [{"type": "text", "data": {"text": "hi"}}]})
+_qq.handle_event({"post_type": "message", "message_type": "private", "self_id": 1,
+                  "user_id": 3, "message_id": 11,
+                  "message": [{"type": "text", "data": {"text": "other"}}]})
+check("qq bridge dedupes messages and ignores other users", _qq._queue.qsize() == 1)
+_qq._convo_primed = False
+_qq_msgs = _qq._build_messages("hi")
+check("qq bridge injects prompt only on first request",
+      _qq_msgs[0]["role"] == "system" and _qq_msgs[0]["content"] == "SYS"
+      and _qq_msgs[-1]["content"] == "hi")
+_qq.config.data["ai_preset"] = "deepseek_web2api"
+_qq._convo_primed = True
+check("qq bridge later requests skip the system prompt for the built-in service",
+      [m["role"] for m in _qq._build_messages("again")] == ["user"])
+_qq.config.data["ai_preset"] = "custom"
+check("qq bridge keeps the system prompt for stateless providers",
+      [m["role"] for m in _qq._build_messages("again")] == ["system", "user"])
+_qq.stop()
+_prompt_base = pet2._system_prompt()
+check("prompt drops old situation/work blocks",
+      "当前情境" not in _prompt_base and "工作状态" not in _prompt_base)
+check("prompt frames the AI as a real person without pet/master wording",
+      "真实生活感" in _prompt_base
+      and "桌宠" not in DEFAULT_CONFIG["ai_persona"]
+      and "主人" not in DEFAULT_CONFIG["ai_persona"])
+check("prompt starts from an equal relationship and lets the AI choose how to address the user",
+      "平等" in _prompt_base and "怎么称呼对方" in _prompt_base)
+pet2._on_weather_updated("sunny", "上海，晴，风速 3.0 km/h（10-24 12:00 查询）")
+check("weather query detail goes into the prompt", "上海，晴" in pet2._system_prompt())
 check("prompt includes current time",
       re.search(r"当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", pet2._system_prompt()) is not None)
 check("prompt tag translated to neutral zh",
@@ -534,9 +610,9 @@ check("prompt tag translated to neutral zh",
       and "weather_sunny" not in pet2._system_prompt("weather_sunny")
       and "深夜时段" in pet2._system_prompt("time_midnight"))
 check("work trigger tags describe AI own state",
-      main_mod.TAG_ZH["work_up"] == "桌宠刚收到充值"
-      and main_mod.TAG_ZH["work_down"] == "桌宠开始工作了"
-      and main_mod.TAG_ZH["work_flat"] == "桌宠空闲了")
+      main_mod.TAG_ZH["work_up"] == "你刚收到充值"
+      and main_mod.TAG_ZH["work_down"] == "你开始工作了"
+      and main_mod.TAG_ZH["work_flat"] == "你空闲了")
 if sys.platform == "win32":
     # 11.45 prompt 注入"当前打开的应用"（前台优先，供 AI 判断主人在做什么）
     import running_apps as ra_mod
@@ -547,7 +623,7 @@ if sys.platform == "win32":
           _apps[:3])
     _prompt_full = pet2._system_prompt()
     check("prompt includes running apps",
-          (("当前打开的应用" in _prompt_full) if _apps else True),
+          (("这台电脑上当前打开着这些应用" in _prompt_full) if _apps else True),
           _prompt_full[:150])
     _aud = ra_mod.audio_apps()
     check("audio apps returns str list",
@@ -640,6 +716,25 @@ pet2.config.set("ai_fallback_enabled", False)
 pet2._convo_primed = False
 pet2._start_mono = _time.monotonic() - 30.0  # 跳过重启后 10s 首条延迟（另测）
 pet2.ai = _CaptureAI(pet2.config)
+_hist_dedupe_saved = pet2.history
+_dedupe_path = os.path.join(tmp, "hist_dedupe.json")
+if os.path.exists(_dedupe_path):
+    os.remove(_dedupe_path)
+pet2.history = ChatHistory(_dedupe_path, 20)
+pet2.history.append("user", "上一句")
+pet2.history.append("assistant", "上一句回复")
+_preset_dedupe_saved = pet2.config.get("ai_preset", "")
+pet2.config.set("ai_preset", "custom")
+_cap2[:] = []
+pet2._on_user_chat("这一句")
+check("current message is not replayed twice from history",
+      len(_cap2) == 1
+      and [m["content"] for m in _cap2[0][0]] == ["上一句", "上一句回复", "这一句"],
+      _cap2[0][0] if _cap2 else None)
+pet2.history = _hist_dedupe_saved
+pet2.config.set("ai_preset", _preset_dedupe_saved)
+pet2._convo_primed = False
+_cap2[:] = []
 pet2._ask_ai([{"role": "user", "content": "第一条"}], {"kind": "chat"})
 pet2._ask_ai([{"role": "user", "content": "第二条"}], {"kind": "chat"})
 check("builtin first request carries persona",
@@ -720,9 +815,9 @@ check("timeout failure keeps priming (no persona re-injection)",
       pet2._convo_primed is True)
 _cap2[:] = []
 pet2._on_selftalk_tag("work_flat")
-check("selftalk frames reason as pet's own and invites realtime topic",
+check("selftalk frames reason as the AI's own and invites realtime topic",
       len(_cap2) == 1
-      and "搭话背景：桌宠空闲了。" in _cap2[0][0][-1]["content"]
+      and "缘由：你空闲了。" in _cap2[0][0][-1]["content"]
       and "正在播放的音乐" in _cap2[0][0][-1]["content"],
       _cap2[0][0][-1]["content"] if _cap2 else None)
 (main_mod.running_apps, main_mod.audio_apps, main_mod.media_track) = _sense_saved
@@ -924,15 +1019,16 @@ check("text-only request keeps plain string content",
       _img_kw["json"]["messages"][-1])
 ai_mod.requests.post = _orig_post
 
-_img_paths = []
-pet2.window.imageInputRequested.connect(_img_paths.append)
+pet2.window.chat_input._pending_image = ""
 _mime_img = QMimeData()
 _mime_img.setUrls([QUrl.fromLocalFile(send_png)])
 check("image mime data resolves to local path",
       pet_window_mod.image_path_from_mime(_mime_img) == send_png)
 pet2.window.dropEvent(QDropEvent(QPointF(1, 1), Qt.CopyAction, _mime_img,
                                  Qt.LeftButton, Qt.NoModifier))
-check("dropping an image file asks to send it", _img_paths == [send_png], _img_paths)
+check("dropping an image stages it until a caption is sent",
+      pet2.window.chat_input._pending_image == send_png,
+      pet2.window.chat_input._pending_image)
 
 not_image = os.path.join(tmp, "note.txt")
 with open(not_image, "w", encoding="utf-8") as _f:
@@ -941,25 +1037,53 @@ _mime_txt = QMimeData()
 _mime_txt.setUrls([QUrl.fromLocalFile(not_image)])
 pet2.window.dropEvent(QDropEvent(QPointF(1, 1), Qt.CopyAction, _mime_txt,
                                  Qt.LeftButton, Qt.NoModifier))
-check("non-image drop is ignored", _img_paths == [send_png], _img_paths)
+check("non-image drop keeps the staged image",
+      pet2.window.chat_input._pending_image == send_png)
 
-_img_paths[:] = []
 QApplication.clipboard().clear()
 QApplication.clipboard().setImage(send_img)
 pet2.window.chat_input.setFocus()
 pet2.window.chat_input.keyPressEvent(
     QKeyEvent(QEvent.KeyPress, Qt.Key_V, Qt.ControlModifier, "v"))
-check("ctrl+V a clipboard image asks to send it",
-      len(_img_paths) == 1 and os.path.dirname(_img_paths[0]) == _tempfile.gettempdir()
-      and os.path.exists(_img_paths[0]), _img_paths)
+_clip_img = pet2.window.chat_input._pending_image
+check("ctrl+V a clipboard image stages it",
+      os.path.dirname(_clip_img) == _tempfile.gettempdir()
+      and os.path.exists(_clip_img), _clip_img)
 QApplication.clipboard().setText("粘贴文字")
 pet2.window.chat_input.setText("")
 pet2.window.chat_input.keyPressEvent(
     QKeyEvent(QEvent.KeyPress, Qt.Key_V, Qt.ControlModifier, "v"))
-check("ctrl+V text still pastes text",
-      pet2.window.chat_input.text() == "粘贴文字" and len(_img_paths) == 1,
-      (pet2.window.chat_input.text(), _img_paths))
+check("ctrl+V text still pastes text and keeps the staged image",
+      pet2.window.chat_input.text() == "粘贴文字"
+      and pet2.window.chat_input._pending_image == _clip_img,
+      (pet2.window.chat_input.text(), pet2.window.chat_input._pending_image))
 pet2.window.chat_input.clear()
+pet2.window.chat_input._pending_image = ""
+
+class _FakeSig:
+    def __init__(self):
+        self.calls = []
+    def emit(self, *args):
+        self.calls.append(args)
+
+class _FakeChatParent:
+    def __init__(self):
+        self.imageChatRequested = _FakeSig()
+        self.chatInputRequested = _FakeSig()
+    def show_float_text(self, *args):
+        pass
+    def _place_input(self):
+        pass
+
+_fake_parent = _FakeChatParent()
+_ci = pet_window_mod.ChatInput(pet2.config, _fake_parent)
+_ci.attach_image(send_png)
+_ci.setText("这是什么")
+_ci._send()
+check("chat input sends the staged image with its caption",
+      _fake_parent.imageChatRequested.calls == [(send_png, "这是什么")]
+      and _ci._pending_image == "" and _ci.text() == "",
+      (_fake_parent.imageChatRequested.calls, _ci._pending_image))
 
 _preset_img_saved = pet2.config.get("ai_preset", "")
 pet2.config.set("ai_preset", "deepseek_web2api")
@@ -978,6 +1102,15 @@ check("user image recorded in chat history",
       bool(pet2.history.items) and "图片" in pet2.history.items[-1]["content"]
       and pet2.history.items[-1]["role"] == "user",
       pet2.history.items)
+_cap2[:] = []
+pet2._on_user_image_chat(send_png, "看看这个")
+check("image plus caption reaches the AI in one request",
+      len(_cap2) == 1 and _cap2[0][2] == send_png
+      and _cap2[0][0][-1]["content"] == "看看这个", _cap2)
+check("caption is recorded together with the image",
+      pet2.history.items[-1]["content"] == "看看这个"
+      and pet2.history.items[-1]["role"] == "user",
+      pet2.history.items[-1])
 pet2.ai = _ai_off
 pet2.history = _hist_real
 pet2.config.set("ai_preset", _preset_img_saved)
@@ -1177,6 +1310,16 @@ check("webchat accepts an uploaded image", _code == 200 and _body.get("ok") is T
 check("webchat writes the image to a temp file for the pet",
       len(_wc_imgs) == 1 and os.path.exists(_wc_imgs[0])
       and open(_wc_imgs[0], "rb").read() == _img_bytes, _wc_imgs)
+_wc_img_chats = []
+wc.imageChatRequested.connect(lambda p, t: _wc_img_chats.append((p, t)),
+                              Qt.DirectConnection)
+_code, _body = _http(_wc_base + "/api/image?k=tok123",
+                     data=json.dumps({"image": _img_data_url,
+                                      "text": "这是什么"}).encode("utf-8"))
+check("webchat forwards an image with its caption",
+      _code == 200 and len(_wc_img_chats) == 1
+      and _wc_img_chats[0][1] == "这是什么"
+      and os.path.exists(_wc_img_chats[0][0]), (_code, _wc_img_chats))
 _code, _body = _http(_wc_base + "/api/image?k=tok123",
                      data=json.dumps({"image": "data:text/plain;base64,aGk="}).encode("utf-8"))
 check("webchat rejects a non-image upload", _code == 400 and not _body.get("ok"), (_code, _body))
@@ -1514,6 +1657,22 @@ check("wclass cloudy", wclass(3, 5) == "cloudy")
 check("wclass rainy", wclass(61, 5) == "rainy")
 check("wclass snowy", wclass(71, 5) == "snowy")
 check("wclass windy overrides clear", wclass(0, 45) == "windy")
+check("weather refreshes hourly",
+      weather_mod.WeatherMonitor.REFRESH_MS == 60 * 60 * 1000)
+_wm_state = {"kind": "sunny"}
+_wm_updates, _wm_changes = [], []
+_wm = weather_mod.WeatherMonitor(cfg, fetch_fn=lambda: (
+    _wm_state["kind"], "上海，晴，风速 3.0 km/h"))
+_wm.weatherUpdated.connect(lambda k, d: _wm_updates.append((k, d)),
+                           Qt.DirectConnection)
+_wm.weatherChanged.connect(_wm_changes.append, Qt.DirectConnection)
+_wm._worker()
+_wm._worker()
+_wm_state["kind"] = "rainy"
+_wm._worker()
+check("weather updates every query but triggers only on change",
+      len(_wm_updates) == 3 and _wm_changes == ["sunny", "rainy"],
+      (_wm_updates, _wm_changes))
 
 print("")
 print("RESULT: {} passed, {} failed".format(passed, len(failed)))

@@ -12,6 +12,7 @@ import random
 import socket
 import struct
 import threading
+import time
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
@@ -21,13 +22,17 @@ import petlog
 
 FAST_DNS_SERVER = ("127.0.0.100", 53)
 FAST_DNS_TIMEOUT_S = 2.0
-IP_API_URL = "http://ip-api.com/json/?fields=status,message,lat,lon,city"
+IP_API_URL = "http://ip-api.com/json/?fields=status,message,lat,lon,city&lang=zh-CN"
 OPEN_METEO_URL = (
     "https://api.open-meteo.com/v1/forecast"
     "?latitude=%.4f&longitude=%.4f&current=weather_code,wind_speed_10m"
     "&timezone=Asia%%2FShanghai"
 )
 WEATHER_KINDS = ("sunny", "cloudy", "rainy", "snowy", "foggy", "windy", "stormy")
+WEATHER_KIND_ZH = {
+    "sunny": "晴", "cloudy": "多云", "rainy": "有雨", "snowy": "有雪",
+    "foggy": "有雾", "windy": "起风", "stormy": "雷暴",
+}
 WINDY_KMH = 38.0  # 风速约 38 km/h（≈6 级风）以上归为"起风"
 
 
@@ -161,18 +166,21 @@ def fetch_weather():
     code = int(cur["weather_code"])
     wind = float(cur.get("wind_speed_10m") or 0)
     kind = classify(code, wind)
-    detail = "%s %s code=%d wind=%.1fkm/h" % (city, kind, code, wind)
+    detail = "%s%s，风速 %.1f km/h（%s 查询）" % (
+        (city + "，") if city else "", WEATHER_KIND_ZH.get(kind, kind),
+        wind, time.strftime("%m-%d %H:%M"))
     return kind, detail
 
 
 class WeatherMonitor(QObject):
     """当前天气监控：定时拉取并按天气分类发信号（带看门狗防挂死）。"""
 
-    weatherChanged = pyqtSignal(str)  # 天气类别：sunny/cloudy/rainy/snowy/foggy/windy/stormy
+    weatherChanged = pyqtSignal(str)  # 仅天气类别变化时发出，供触发情景
+    weatherUpdated = pyqtSignal(str, str)  # 每次查询都发：类别 + 可直接放进 prompt 的详情
     weatherError = pyqtSignal(str)
 
     WATCHDOG_MS = 20000
-    REFRESH_MS = 30 * 60 * 1000  # 每 30 分钟刷新一次
+    REFRESH_MS = 60 * 60 * 1000  # 每小时重新定位并查询一次
 
     def __init__(self, config, fetch_fn=None, watchdog_ms=None):
         super().__init__()
@@ -180,6 +188,7 @@ class WeatherMonitor(QObject):
         self._fetch_fn = fetch_fn or fetch_weather
         self._fetching = False
         self._timeouts = 0
+        self._last_kind = ""
         self._watchdog_ms = watchdog_ms or self.WATCHDOG_MS
         self._watchdog = QTimer(self)
         self._watchdog.setSingleShot(True)
@@ -215,7 +224,10 @@ class WeatherMonitor(QObject):
             kind, detail = self._fetch_fn()
             self._timeouts = 0
             petlog.log("weather fetch ok: %s" % detail)
-            self.weatherChanged.emit(kind)
+            self.weatherUpdated.emit(kind, detail)
+            if kind != self._last_kind:
+                self._last_kind = kind
+                self.weatherChanged.emit(kind)
         except Exception as e:
             petlog.log("weather fetch error: %s" % e)
             self.weatherError.emit(str(e))

@@ -74,13 +74,13 @@ TAG_ZH = {
     "time_midnight": "深夜时段",
     "time_weekend": "周末时段",
     "health": "久坐健康提醒",
-    "attention": "主人长时间未互动",
+    "attention": "有一阵子没互动了",
     "affection_high": "好感度达到高位",
     "affection_mid": "好感度保持中等",
     "affection_low": "好感度处于低位",
-    "work_up": "桌宠刚收到充值",
-    "work_down": "桌宠开始工作了",
-    "work_flat": "桌宠空闲了",
+    "work_up": "你刚收到充值",
+    "work_down": "你开始工作了",
+    "work_flat": "你空闲了",
     "weather_sunny": "天气晴朗",
     "weather_cloudy": "天气多云",
     "weather_rainy": "天气有雨",
@@ -133,7 +133,7 @@ class SelfTalkMonitor(QObject):
         self._last_health = 0.0
         self._last_work_quote = {"up": 0.0, "down": 0.0, "flat": 0.0}
         self._fired_rules = {}    # time 规则 -> 已触发日期
-        self._fired_weather = {}   # 天气池 -> 已触发日期
+        self._last_weather_kind = ""
         # 可注入（测试/外部调整）
         self._now_fn = datetime.now
         self._mono_fn = time.monotonic
@@ -242,14 +242,13 @@ class SelfTalkMonitor(QObject):
             self._last_work_quote[direction] = mono
 
     def set_weather(self, kind):
-        """天气变化时调用：当天同一天气至多触发一次（换天气/跨天可再触发）。"""
-        tag = ("weather_" + kind) if kind in self.WEATHER_KINDS else "weather"
-        today = self._now_fn().date().isoformat()
+        """天气变化时调用：只有和上一次查询不同才触发。"""
+        if kind == self._last_weather_kind:
+            return
+        self._last_weather_kind = kind
         if not bool(self.config.get("self_talk_enabled", True)):
             return
-        if self._fired_weather.get(tag) == today:
-            return
-        self._fired_weather[tag] = today  # 先占当天名额：立即说，或冷却到点后补说
+        tag = ("weather_" + kind) if kind in self.WEATHER_KINDS else "weather"
         self._emit_tag(tag, hold=True)
 
     def note_interaction(self):
@@ -331,7 +330,10 @@ class DesktopPet:
         self._balloon = None
         self._special_active = False
         self._last_error_ts = 0.0
+        self._last_weather = ""
+        self._last_balance = ""
         self._settings_dlg = None
+        self.qq_bridge = None
         self.web2api = web2api.Manager()
         self.web2api.status.connect(self._on_web2api_status)
         # 内置免费 AI（DeepSeek 网页对话）自带对话记录：人设只需在每次
@@ -353,6 +355,11 @@ class DesktopPet:
             self.balance.start()  # 余额轮询（多平台账号，未绑定则显示"未绑定账号"）
             if os.path.isdir(web2api.VENDOR_DIR):
                 self.web2api.ensure_async()  # 探测/拉起内置 AI；未绑定会弹登录
+            if bool(self.config.get("qq_bridge_enabled", False)):
+                from qq_bridge import QQBridge
+                self.qq_bridge = QQBridge(self.config, self._system_prompt)
+                self.qq_bridge.start()
+                QApplication.instance().aboutToQuit.connect(self.qq_bridge.stop)
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
     # ---------- 聊天记录网页（局域网） ----------
@@ -378,8 +385,9 @@ class DesktopPet:
         self.webchat.chatRequested.connect(self.window.chatInputRequested.emit)
         # 网页"摸头"走 window.do_head_pat：与鼠标单击桌宠完全一致（GIF + AI 反应 + 好感）
         self.webchat.patRequested.connect(self.window.do_head_pat)
-        # 网页传图走 _on_user_image：与拖图/粘贴截图完全一致
+        # 网页传图：没配文字走旧入口，配了文字走"图+文"同一请求
         self.webchat.imageRequested.connect(self._on_user_image)
+        self.webchat.imageChatRequested.connect(self._on_user_image_chat)
         if self.webchat.start():
             petlog.log("webchat listening: %s" % self.webchat.url())
             QApplication.instance().aboutToQuit.connect(self.webchat.stop)
@@ -399,6 +407,8 @@ class DesktopPet:
         self._show_balloon("已复制聊天记录网页地址：%s（手机/平板连同一个 WiFi 打开）" % url)
 
     def _on_web2api_status(self, ok, msg):
+        if self.qq_bridge is not None:
+            self.qq_bridge.reset_context()
         if msg:
             # 服务拉起/重连/登录后 = DeepSeek 新对话：下一条请求重注入人设
             self._convo_primed = False
@@ -411,29 +421,23 @@ class DesktopPet:
     # ---------- AI 生成 ----------
     def _system_prompt(self, tag="", persona=True):
         """组装 system prompt；persona=False 时只给动态情境，不再重复人设。"""
-        tier_map = {"high": "好感度很高", "mid": "好感度一般", "low": "好感度较低"}
-        tier = self.affection.tier()
-        work_map = {"up": "充值了", "down": "工作中",
-                    "flat": "空闲中", "unknown": "未知"}
-        work = work_map.get(self.window.work_label.current_state(), "未知")
-        from scheduler import is_peak
-        period = "高峰时段" if is_peak() else "空闲时段"
         parts = []
         if persona:
             text = str(self.config.get("ai_persona", "")).strip()
             if text:
                 parts.append(text)
-        parts.extend([
-            "当前情境：%s；%s。" % (period, tier_map.get(tier, tier)),
-            "工作状态：%s。注意：该状态描述桌宠："
-            "工作中/空闲中 = 我在不在跑任务，充值了 = 我的账户到账；"
-            "它不是主人的工作状态，主人此刻在做什么请以“当前打开的应用”为准。" % work,
-            "当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"),
-        ])
+        parts.append(
+            "你是一个有真实生活感的人，有自己的生活、性格、情绪和判断。"
+            "你和对方是平等的，没有主仆或从属关系；怎么称呼对方、保持怎样的距离，"
+            "由你自己的感受决定。"
+            "你能自然感知到这台电脑上的时间、正在用的应用、声音和天气；"
+            "这些是你此刻知道的事，聊天时顺手用，不要逐条播报，也不要解释自己是怎么知道的。"
+        )
+        parts.append("当前时间：%s。" % time.strftime("%Y-%m-%d %H:%M:%S"))
         apps = running_apps()
         if apps:
             parts.append(
-                "当前打开的应用（排最前的为前台窗口，可据此判断主人在做什么）：%s。"
+                "这台电脑上当前打开着这些应用（排最前的为前台窗口）：%s。"
                 % "；".join(apps))
         aud = audio_apps()
         if aud:
@@ -443,10 +447,15 @@ class DesktopPet:
             parts.append("正在播放音乐：%s - %s（%s）。"
                          % (tr.get("title"), tr.get("artist"), tr.get("app")))
         if getattr(self, "_last_weather", ""):
-            parts.append("当前天气：%s。" % self._last_weather)
+            parts.append("你所在城市的天气（每小时更新）：%s。" % self._last_weather)
+        if getattr(self, "_last_balance", ""):
+            parts.append("当前账户余额合计：%s。" % self._last_balance)
         if tag:
-            parts.append("本次搭话背景：%s。" % TAG_ZH.get(tag, tag))
-        parts.append("回复要非常简短（一两句话），不要复述情境描述。")
+            parts.append("你这次主动开口的缘由：%s。" % TAG_ZH.get(tag, tag))
+        parts.append(
+            "像真人聊天一样自然回应：口语化，可以有自己的小情绪和追问；"
+            "不必每次只说一两句话，但别写成报告、长篇独白或重复上面的信息。"
+        )
         return "\n".join(parts)
 
     def _ask_ai(self, messages, meta):
@@ -467,7 +476,10 @@ class DesktopPet:
         if fresh:
             self._convo_primed = True
         n = int(self.config.get("ai_context_n", 10) or 10)
-        msgs = (self.history.context(n) if fresh else []) + messages  # 主线程纯内存拼接（快）
+        ctx = self.history.context(n)
+        if meta.get("skip_history_last") and ctx:
+            ctx = ctx[:-1]  # 调用方刚写入的当前消息，别在历史里再回放一次
+        msgs = (ctx if fresh else []) + messages  # 主线程纯内存拼接（快）
         # system prompt 组装（枚举窗口/采样音频/起 PowerShell 查歌曲）整体在
         # AI worker 线程执行，避免摸头/对话时卡住 GUI（GIF 播放延迟的根因）
         self.ai.chat(
@@ -479,17 +491,18 @@ class DesktopPet:
         reason = TAG_ZH.get(tag, tag)
         self._ask_ai(
             [{"role": "user",
-              "content": "（桌宠主动找主人搭话。搭话背景：%s。请以桌宠自己的"
-                         "视角自然地开口：结合上面的实时情境（如正在播放的"
-                         "音乐、主人打开的应用、天气等）说一句应景的话，"
-                         "简短口语化，不要生硬复述背景文字。）" % reason}],
+              "content": "（你想主动找对方搭话。缘由：%s。请像一个真实的人那样"
+                         "自然开口：结合你感知到的情境（正在播放的音乐、当前"
+                         "打开的应用、天气等）说一句应景的话，口语化，不要生硬"
+                         "复述背景文字。）" % reason}],
             {"kind": "selftalk", "tag": tag})
 
     def _show_pet_head(self):
         """单击桌宠：AI 根据好感档位与上下文生成摸头反应。"""
         self._ask_ai(
             [{"role": "user",
-              "content": "（主人刚刚单击摸了摸你的头，请自然地反应一句话，简短口语化。）"}],
+              "content": "（对方刚刚摸了摸你的头，请按你自己的想法自然反应一句话，"
+                         "可以带点自己的情绪，口语化。）"}],
             {"kind": "head"})
 
     def _on_pet_head(self):
@@ -542,21 +555,33 @@ class DesktopPet:
         if kind:
             self._pending_sleep = kind   # 这条回复完之后去睡
         self.history.append("user", text)
-        self._ask_ai([{"role": "user", "content": text}], {"kind": "chat"})
+        self._ask_ai([{"role": "user", "content": text}],
+                     {"kind": "chat", "skip_history_last": True})
 
     def _on_user_image(self, path):
-        """发图片给 AI：文字提示 + 图片走同一条链路（内置服务会自动上传到网页版识图）。"""
+        """网页入口发图（没有附带文字）：直接发。"""
+        self._send_user_image(path, "")
+
+    def _on_user_image_chat(self, path, text):
+        """桌面入口发图：等用户把图和那句话一起发出来再让 AI 回应。"""
+        self._send_user_image(path, text)
+
+    def _send_user_image(self, path, text=""):
+        """图片和文字走同一条请求；文字为空时才用默认的看图提示。"""
         if self.sleep.is_asleep():
             self._show_balloon(sleep.SLEEP_TEXT)
             return
+        text = str(text or "").strip()
         name = os.path.basename(path)
         # 存一份到 web_images/：这样手机网页上能直接把图渲染出来（只存文件名进历史）
         stored = webchat.store_image(path) if self.webchat is not None else ""
-        self.history.append("user", "（发送了一张图片：%s）" % name, image=stored)
+        self.history.append("user", text or "（发送了一张图片：%s）" % name, image=stored)
+        self.talk.note_interaction()
         self.window.show_float_text("发送图片成功", "#22C55E")
         self._ask_ai(
-            [{"role": "user", "content": "（我发了一张图片，看看它，随口说点什么）"}],
-            {"kind": "chat", "image": path})
+            [{"role": "user",
+              "content": text or "（我发了一张图片，看看它，随口说点什么）"}],
+            {"kind": "chat", "image": path, "skip_history_last": True})
 
     def _on_ai_reply(self, text, ok, meta):
         meta = meta or {}
@@ -570,6 +595,8 @@ class DesktopPet:
             # 读网页/思考，会话没断，重注入只会反复污染对话、让回复变刻板。
             if not meta.get("timeout"):
                 self._convo_primed = False
+                if self.qq_bridge is not None:
+                    self.qq_bridge.reset_context()
             # 兜底文本只作为连接波动提示弹气泡，不计入聊天记录
             if bool(self.config.get("ai_fallback_enabled", True)):
                 self._show_balloon(self._failure_hint(meta))
@@ -602,8 +629,7 @@ class DesktopPet:
         w.petHeadRequested.connect(self._on_pet_head)   # 摸头：AI 反应 + 互动 + 好感（睡着时被冻结）
         w.chatInputRequested.connect(self._on_user_chat)
         w.chatInputRequested.connect(lambda: self.talk.note_interaction())
-        w.imageInputRequested.connect(self._on_user_image)
-        w.imageInputRequested.connect(lambda: self.talk.note_interaction())
+        w.imageChatRequested.connect(self._on_user_image_chat)
         w.historyRequested.connect(self._open_history)
         w.webchatUrlRequested.connect(self._copy_webchat_url)
         w.balanceVisibleRequested.connect(self._on_balance_visible)
@@ -615,7 +641,7 @@ class DesktopPet:
         w.affection_label.set_affection(a.value())
 
         m = self.balance
-        m.balanceUpdated.connect(w.set_balance_text)
+        m.balanceUpdated.connect(self._on_balance_updated)
         m.balanceUp.connect(lambda t: w.show_float_text(t, "#22C55E"))
         m.balanceDown.connect(lambda t: w.show_float_text(t, "#EF4444"))
         m.balanceUp.connect(lambda t: w.work_label.set_state("up"))
@@ -639,10 +665,14 @@ class DesktopPet:
         s.idleStarted.connect(lambda: w.status_label.set_state(False))
         self.talk.request_talk.connect(self._on_selftalk_tag)
         self.sleep.woke.connect(self._on_wake)
+        self.weather.weatherUpdated.connect(self._on_weather_updated)
         self.weather.weatherChanged.connect(self.talk.set_weather)
-        self.weather.weatherChanged.connect(lambda k: setattr(self, "_last_weather", k))
         self.weather.weatherError.connect(self._on_weather_error)
         self.ai.reply.connect(self._on_ai_reply)
+
+    def _on_weather_updated(self, kind, detail):
+        """每次查询的结果都进 prompt；是否触发情景由 WeatherMonitor 判断。"""
+        self._last_weather = detail
 
     def _on_weather_error(self, msg):
         """天气拉取失败：只留日志，不弹通知打扰用户。"""
@@ -650,6 +680,14 @@ class DesktopPet:
 
     def _on_balance_visible(self, visible):
         self.window.set_balance_visible(visible)
+
+    def _on_balance_updated(self, total, text):
+        accounts = self.config.get("accounts", {}) or {}
+        if text == "selftest" or text == "未绑定账号" or not accounts:
+            self._last_balance = ""
+        else:
+            self._last_balance = text
+        self.window.set_balance_text(total, text)
 
     def _restore_position(self):
         pos = self.config.get("pet_pos")
@@ -766,6 +804,8 @@ class DesktopPet:
             return
         self._persona_active = persona
         self._convo_primed = False
+        if self.qq_bridge is not None:
+            self.qq_bridge.reset_context()
         petlog.log("persona changed: starting a new conversation")
         web2api.restart_async()
         self._show_balloon("人设已换，下一条消息起新开一段对话")
