@@ -52,8 +52,6 @@
     2 小时、晚安睡 8 小时；到点、或现实时间到 14:30 / 08:30 自己醒（谁先到算谁）。
     睡着期间对它说话、摸头、发图，只会得到一句「呼……呼……（桌宠似乎睡得正香）」
     （不计入聊天记录），自言自语暂停，好感不涨也不掉；醒来第一句会是刚睡醒的状态。
-16. **QQ 私聊（可选）**：个人 QQ 小号经 NapCat / OneBot 11 接入，在 QQ 里和同一个
-    内置 AI 聊天；默认只接私聊文字，可与桌面端共享记忆。
 
 ## 截图
 
@@ -102,22 +100,6 @@ python main.py
 
 说明：仓库里只放**打包工具与工程模板**（不含任何地址或口令），发布页也不提供 apk 下载；
 生成的 apk 请留在本地。
-
-### QQ 私聊（可选）
-
-用个人 QQ 小号做机器人，不需要 QQ 开放平台的 AppID。内置桥接通过 OneBot 11 连接
-[NapCatQQ](https://github.com/NapNeko/NapCatQQ)：
-
-1. 安装 NapCat 并用一个**小号**登录，开启 OneBot 11 WebSocket 服务（默认
-   `ws://127.0.0.1:3001`，消息格式选 array）。
-2. 在 `config.json` 设置 `qq_bridge_enabled` 为 `true`；`qq_bridge_token` 与 NapCat
-   的 token 一致（没设就留空）；`qq_bridge_allowed_ids` 填自己的 QQ 号。
-   留空时会把**第一个私聊用户**自动加入白名单。NapCat 的 WebSocket 建议只监听
-   `127.0.0.1` 并设置 token，不要把无 token 的端口暴露到局域网。
-3. 重启桌宠，用 QQ 私聊这个小号即可。
-
-只处理私聊文本，暂不支持图片和群聊。QQ 与桌宠共用同一段内置 AI 记忆。
-个人 QQ 自动化不是官方能力，存在风控、冻结或封号风险，**务必使用小号**。
 
 ### 常用操作
 
@@ -175,8 +157,6 @@ python main.py
   `ai_context_n`、`ai_fallback_enabled`、`ai_web2api_max_messages`；
 - 聊天记录网页：`webchat_enabled`、`webchat_port`（默认 8848）、`webchat_bind`
   （默认 0.0.0.0，仅本机可设 127.0.0.1）、`webchat_token`（访问口令，留空则每次启动自动生成）；
-- QQ 私聊：`qq_bridge_enabled`、`qq_bridge_ws_url`（默认 `ws://127.0.0.1:3001`）、
-  `qq_bridge_token`、`qq_bridge_allowed_ids`（留空自动绑定首个私聊用户）；
 - 余额/工作状态：`accounts`、`poll_interval_sec`、`show_balance`、
   `work_label_enabled`、`work_state_hold_sec`；
 - 其他：`self_talk_enabled`、`self_talk_interval`、`chat_history_max`、`auto_start`。

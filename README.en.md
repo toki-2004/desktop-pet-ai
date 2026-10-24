@@ -79,8 +79,6 @@ zero-cost chatting with no API key at all.
     "呼……呼……（桌宠似乎睡得正香）" (not saved to history), self-talk stops, and
     affection neither rises nor decays; its first line after waking sounds like
     someone who just got up.
-16. **QQ private chat (optional)**: connect a secondary personal QQ account through
-    NapCat / OneBot 11 and talk to the same built-in AI; text DMs only.
 
 ## Screenshots
 
@@ -137,24 +135,6 @@ Requirements (JDK 17 / Gradle 8.x / Android SDK 34), all parameters and the usua
 
 Note: only the **builder and project template** live in this repository (no address and no
 token); releases never ship an apk — keep your generated apk local.
-
-### QQ private chat (optional)
-
-Use a secondary personal QQ account as the bot; no QQ Open Platform AppID is needed.
-The built-in bridge connects through OneBot 11 to
-[NapCatQQ](https://github.com/NapNeko/NapCatQQ):
-
-1. Install NapCat and sign in with a **secondary account**, then enable the OneBot 11
-   WebSocket server (default `ws://127.0.0.1:3001`, message format: array).
-2. In `config.json`, set `qq_bridge_enabled` to `true`; set `qq_bridge_token` to the
-   NapCat token (leave empty if none); put your QQ number in `qq_bridge_allowed_ids`.
-   If the list is empty, the first private sender is bound automatically. Bind NapCat's
-   WebSocket to `127.0.0.1` and set a token; do not expose an unauthenticated port to the LAN.
-3. Restart the pet and send a private message to that QQ account.
-
-Only text DMs are supported; images and group chats are not. QQ and the desktop pet
-share the same built-in AI conversation. Personal-QQ automation is unofficial and
-may trigger risk controls or account suspension, so **use a secondary account**.
 
 ### Common actions
 
@@ -223,9 +203,6 @@ backup). Common keys:
   `ai_context_n`, `ai_fallback_enabled`, `ai_web2api_max_messages`;
 - Chat page: `webchat_enabled`, `webchat_port` (default 8848), `webchat_bind`
   (default 0.0.0.0; use 127.0.0.1 for this machine only), `webchat_token`;
-- QQ private chat: `qq_bridge_enabled`, `qq_bridge_ws_url`
-  (default `ws://127.0.0.1:3001`), `qq_bridge_token`, `qq_bridge_allowed_ids`
-  (empty binds the first private sender automatically);
 - Balance/work status: `accounts`, `poll_interval_sec`, `show_balance`,
   `work_label_enabled`, `work_state_hold_sec`;
 - Others: `self_talk_enabled`, `self_talk_interval`, `chat_history_max`,

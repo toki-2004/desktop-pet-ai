@@ -4,7 +4,7 @@ import json
 import os
 import shutil
 
-APP_VERSION = "1.15.0"
+APP_VERSION = "1.15.1"
 
 DEFAULT_CONFIG = {
     "balloon_fill": "#FFFFFF",
@@ -65,11 +65,6 @@ DEFAULT_CONFIG = {
     "ai_fallback_text": "唔……我现在有点短路了",
     "ai_web2api_max_messages": 20,  # 内置 DeepSeek 网页对话的消息上限（0=不限制）
     "chat_history_max": 200,
-    # QQ 私聊桥（OneBot 11 / NapCat；默认关闭）
-    "qq_bridge_enabled": False,
-    "qq_bridge_ws_url": "ws://127.0.0.1:3001",
-    "qq_bridge_token": "",
-    "qq_bridge_allowed_ids": [],
     # 睡眠状态（说了"午安/晚安"后存这里，重启接着睡；醒来条件见 sleep.py）
     "sleep_kind": "",
     "sleep_until": 0,

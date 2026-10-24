@@ -26,7 +26,6 @@ from scheduler import is_peak  # noqa: E402
 from settings_dialog import SettingsDialog  # noqa: E402
 from weather import classify as wclass  # noqa: E402
 import main as main_mod  # noqa: E402
-import qq_bridge as qq_mod  # noqa: E402
 import weather as weather_mod  # noqa: E402
 
 app = QApplication(sys.argv)
@@ -546,52 +545,6 @@ check("built-in persona is equal and matches the settings fallback",
       DEFAULT_PERSONA == DEFAULT_CONFIG["ai_persona"]
       and "平等" in DEFAULT_PERSONA
       and "桌宠" not in DEFAULT_PERSONA and "主人" not in DEFAULT_PERSONA)
-class _QQCfg:
-    def __init__(self):
-        self.data = {"qq_bridge_allowed_ids": []}
-
-    def get(self, key, default=None):
-        return self.data.get(key, default)
-
-    def set(self, key, value):
-        self.data[key] = value
-
-
-_qq = qq_mod.QQBridge(_QQCfg(), lambda: "SYS")
-check("qq bridge extracts text segments",
-      qq_mod.extract_text([
-          {"type": "text", "data": {"text": "你"}},
-          {"type": "image", "data": {"url": "x"}},
-          {"type": "text", "data": {"text": "好"}},
-      ]) == "你好")
-check("qq bridge strips CQ codes", qq_mod.extract_text("hi[CQ:face,id=1]") == "hi")
-check("qq bridge chunks long replies", len(qq_mod.chunk_text("x" * 3100)) == 3)
-_qq.handle_event({"post_type": "message", "message_type": "private", "self_id": 1,
-                  "user_id": 2, "message_id": 10,
-                  "message": [{"type": "text", "data": {"text": "hi"}}]})
-check("qq bridge auto-binds first private sender",
-      _qq._allowed == {"2"} and _qq.config.data["qq_bridge_allowed_ids"] == ["2"]
-      and _qq._queue.qsize() == 1)
-_qq.handle_event({"post_type": "message", "message_type": "private", "self_id": 1,
-                  "user_id": 2, "message_id": 10,
-                  "message": [{"type": "text", "data": {"text": "hi"}}]})
-_qq.handle_event({"post_type": "message", "message_type": "private", "self_id": 1,
-                  "user_id": 3, "message_id": 11,
-                  "message": [{"type": "text", "data": {"text": "other"}}]})
-check("qq bridge dedupes messages and ignores other users", _qq._queue.qsize() == 1)
-_qq._convo_primed = False
-_qq_msgs = _qq._build_messages("hi")
-check("qq bridge injects prompt only on first request",
-      _qq_msgs[0]["role"] == "system" and _qq_msgs[0]["content"] == "SYS"
-      and _qq_msgs[-1]["content"] == "hi")
-_qq.config.data["ai_preset"] = "deepseek_web2api"
-_qq._convo_primed = True
-check("qq bridge later requests skip the system prompt for the built-in service",
-      [m["role"] for m in _qq._build_messages("again")] == ["user"])
-_qq.config.data["ai_preset"] = "custom"
-check("qq bridge keeps the system prompt for stateless providers",
-      [m["role"] for m in _qq._build_messages("again")] == ["system", "user"])
-_qq.stop()
 _prompt_base = pet2._system_prompt()
 check("prompt drops old situation/work blocks",
       "当前情境" not in _prompt_base and "工作状态" not in _prompt_base)

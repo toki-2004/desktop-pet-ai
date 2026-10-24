@@ -333,7 +333,6 @@ class DesktopPet:
         self._last_weather = ""
         self._last_balance = ""
         self._settings_dlg = None
-        self.qq_bridge = None
         self.web2api = web2api.Manager()
         self.web2api.status.connect(self._on_web2api_status)
         # 内置免费 AI（DeepSeek 网页对话）自带对话记录：人设只需在每次
@@ -355,11 +354,6 @@ class DesktopPet:
             self.balance.start()  # 余额轮询（多平台账号，未绑定则显示"未绑定账号"）
             if os.path.isdir(web2api.VENDOR_DIR):
                 self.web2api.ensure_async()  # 探测/拉起内置 AI；未绑定会弹登录
-            if bool(self.config.get("qq_bridge_enabled", False)):
-                from qq_bridge import QQBridge
-                self.qq_bridge = QQBridge(self.config, self._system_prompt)
-                self.qq_bridge.start()
-                QApplication.instance().aboutToQuit.connect(self.qq_bridge.stop)
         self._setup_tray()  # 托盘（延迟自检组件）：窗口与监控就绪后创建
 
     # ---------- 聊天记录网页（局域网） ----------
@@ -407,8 +401,6 @@ class DesktopPet:
         self._show_balloon("已复制聊天记录网页地址：%s（手机/平板连同一个 WiFi 打开）" % url)
 
     def _on_web2api_status(self, ok, msg):
-        if self.qq_bridge is not None:
-            self.qq_bridge.reset_context()
         if msg:
             # 服务拉起/重连/登录后 = DeepSeek 新对话：下一条请求重注入人设
             self._convo_primed = False
@@ -595,8 +587,6 @@ class DesktopPet:
             # 读网页/思考，会话没断，重注入只会反复污染对话、让回复变刻板。
             if not meta.get("timeout"):
                 self._convo_primed = False
-                if self.qq_bridge is not None:
-                    self.qq_bridge.reset_context()
             # 兜底文本只作为连接波动提示弹气泡，不计入聊天记录
             if bool(self.config.get("ai_fallback_enabled", True)):
                 self._show_balloon(self._failure_hint(meta))
@@ -804,8 +794,6 @@ class DesktopPet:
             return
         self._persona_active = persona
         self._convo_primed = False
-        if self.qq_bridge is not None:
-            self.qq_bridge.reset_context()
         petlog.log("persona changed: starting a new conversation")
         web2api.restart_async()
         self._show_balloon("人设已换，下一条消息起新开一段对话")
